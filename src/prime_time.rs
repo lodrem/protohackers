@@ -27,7 +27,7 @@ struct Response {
     pub prime: bool,
 }
 
-async fn respond<W>(writer: &mut W, data: Response)
+async fn respond<W>(writer: &mut W, data: Response) -> Result<()>
 where
     W: AsyncWrite + Unpin,
 {
@@ -36,12 +36,11 @@ where
         serde_json::to_string(&data).expect("serialize response")
     );
     info!("Outgoing response: {}", data.trim());
-    if let Err(e) = writer.write_all(data.as_bytes()).await {
-        error!("Failed to respond data: {:?}", e);
-    }
+    writer.write_all(data.as_bytes()).await?;
+    Ok(())
 }
 
-async fn fail<T>(writer: &mut T)
+async fn fail<T>(writer: &mut T) -> Result<()>
 where
     T: AsyncWrite + Unpin,
 {
@@ -52,7 +51,7 @@ where
             prime: false,
         },
     )
-    .await;
+    .await
 }
 
 fn is_prime(n: f64) -> bool {
@@ -74,11 +73,7 @@ pub async fn run(mut socket: TcpStream, remote_addr: SocketAddr) -> Result<()> {
     let mut reader = BufReader::new(rh);
     loop {
         let mut line = String::new();
-
-        if let Err(e) = reader.read_line(&mut line).await {
-            error!("Failed to read line from socket: {:?}", e);
-            break;
-        }
+        reader.read_line(&mut line).await?;
 
         info!("Incoming request: {}", line.trim());
 
@@ -91,16 +86,16 @@ pub async fn run(mut socket: TcpStream, remote_addr: SocketAddr) -> Result<()> {
                         prime: is_prime(req.number),
                     },
                 )
-                .await
+                .await?;
             }
             Err(e) => {
                 error!("Failed to deserialize request {}: {:?}", line.trim(), e);
-                fail(&mut wh).await;
+                fail(&mut wh).await?;
                 break;
             }
             _ => {
                 error!("Unexpected request: {}", line);
-                fail(&mut wh).await;
+                fail(&mut wh).await?;
                 break;
             }
         }

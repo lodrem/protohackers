@@ -4,53 +4,63 @@ use std::net::SocketAddr;
 use anyhow::Result;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
-use tracing::{error, info};
+use tracing::{info, warn};
+
+struct State {
+    m: BTreeMap<i32, i32>,
+}
+
+impl State {
+    pub fn new() -> Self {
+        Self { m: BTreeMap::new() }
+    }
+
+    pub fn insert(&mut self, price: i32, timestamp: i32) {
+        self.m.insert(timestamp, price);
+    }
+
+    pub fn query(&self, from: i32, end: i32) -> i32 {
+        if from > end {
+            return 0;
+        }
+        let prices = self.m.range(from..=end);
+        let cnt = prices.clone().count() as i128;
+        let sum: i128 = prices.map(|(_, &v)| v as i128).sum();
+
+        if cnt == 0 {
+            0
+        } else {
+            (sum / cnt) as i32
+        }
+    }
+}
 
 pub async fn run(mut socket: TcpStream, remote_addr: SocketAddr) -> Result<()> {
     let (mut rh, mut wh) = socket.split();
-    let mut m = BTreeMap::new();
+    let mut state = State::new();
 
     loop {
-        let msg_type = rh.read_u8().await?;
-        match msg_type {
+        let op = rh.read_u8().await?;
+        let lhs = rh.read_i32().await?;
+        let rhs = rh.read_i32().await?;
+        match op {
             b'I' => {
-                let timestamp = rh.read_i32().await?;
-                let price = rh.read_i32().await?;
-                info!(
-                    "Inserting price {} at {} from {}",
-                    price, timestamp, remote_addr
-                );
-                m.insert(timestamp, price);
+                info!("Inserting price {} at {} from {}", lhs, rhs, remote_addr);
+                state.insert(lhs, rhs);
             }
             b'Q' => {
-                let min_time = rh.read_i32().await?;
-                let max_time = rh.read_i32().await?;
                 info!(
                     "Querying price from {} to {} from {}",
-                    min_time, max_time, remote_addr
+                    lhs, rhs, remote_addr
                 );
-                let mut rv = 0;
-                let mut cnt = 0;
-                let rv = if min_time <= max_time {
-                    for (_, &v) in m.range(min_time..=max_time) {
-                        rv += v as i128;
-                        cnt += 1;
-                    }
-                    if cnt == 0 {
-                        0
-                    } else {
-                        (rv / cnt) as i32
-                    }
-                } else {
-                    0
-                };
+                let rv = state.query(lhs, rhs);
                 info!("Writing query result {} to {}", rv, remote_addr);
-                if let Err(e) = wh.write_i32(rv).await {
-                    error!("Failed to write query result: {:?}", e);
-                    break;
-                }
+                wh.write_i32(rv).await?;
             }
-            _ => {}
+            _ => {
+                warn!("Unknown operation: {}", op);
+                break;
+            }
         };
     }
 
