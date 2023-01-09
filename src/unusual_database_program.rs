@@ -18,15 +18,21 @@ pub async fn run(addr: SocketAddr) -> Result<()> {
 
         let kv = kv.clone();
         tokio::spawn(async move {
-            let req = String::from_utf8_lossy(&buf[0..n]).to_string();
+            let req = {
+                let mut req = String::from_utf8_lossy(&buf[0..n]).to_string();
+                req.pop();
+                req
+            };
             match req.split_once('=') {
                 Some((k, v)) => {
                     info!("Inserting key-value pair: {} = {}", k, v);
                     kv.write().unwrap().insert(k.to_owned(), v.to_owned());
                 }
                 None => {
-                    let v = kv.read().unwrap().get(&req).cloned().unwrap_or_default();
-                    let resp = format!("{}={}", req, v);
+                    let resp = {
+                        let v = kv.read().unwrap().get(&req).cloned().unwrap_or_default();
+                        format!("{}={}", req, v)
+                    };
 
                     if let Err(e) = socket.send_to(resp.as_bytes(), remote_addr).await {
                         warn!("Failed to send response to {}: {:?}", remote_addr, e);
