@@ -45,8 +45,8 @@ pub async fn run(mut socket: TcpStream, remote_addr: SocketAddr) -> Result<()> {
         let rhs = rh.read_i32().await?;
         match op {
             b'I' => {
-                info!("Inserting price {} at {} from {}", lhs, rhs, remote_addr);
-                state.insert(lhs, rhs);
+                info!("Inserting price {} at {} from {}", rhs, lhs, remote_addr);
+                state.insert(rhs, lhs);
             }
             b'Q' => {
                 info!(
