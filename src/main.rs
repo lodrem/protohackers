@@ -107,7 +107,10 @@ mod prime_time {
     where
         W: AsyncWrite + Unpin,
     {
-        let data = serde_json::to_string(&data).expect("serialize response");
+        let data = format!(
+            "{}\n",
+            serde_json::to_string(&data).expect("serialize response")
+        );
         if let Err(e) = writer.write_all(data.as_bytes()).await {
             error!("Failed to respond data: {:?}", e);
         }
