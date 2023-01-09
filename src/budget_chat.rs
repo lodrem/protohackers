@@ -119,6 +119,10 @@ where
     }
 }
 
+fn is_valid_name(name: &str) -> bool {
+    name.chars().all(char::is_alphanumeric)
+}
+
 async fn handle(socket: TcpStream, remote_addr: SocketAddr, mut state: Room) -> Result<()> {
     info!("Accepting socket from {}", remote_addr);
 
@@ -131,8 +135,13 @@ async fn handle(socket: TcpStream, remote_addr: SocketAddr, mut state: Room) -> 
         wh.write_all(GREET_MESSAGE.as_bytes()).await?;
         let mut name = String::new();
         reader.read_line(&mut name).await?;
-        name.trim().to_owned()
+        name.pop();
+        name
     };
+    if !is_valid_name(&name) {
+        wh.write_all("Illegal name".as_bytes()).await?;
+        return Ok(());
+    }
 
     let users = state.list();
     let mut outgoing = state.join(&name)?;
