@@ -5,6 +5,7 @@ mod budget_chat;
 mod means_to_an_end;
 mod prime_time;
 mod smock_test;
+mod unusual_database_program;
 
 use anyhow::{anyhow, Result};
 use clap::Parser;
@@ -39,6 +40,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 "prime_time" => prime_time::run(addr).await,
                 "means_to_an_end" => means_to_an_end::run(addr).await,
                 "budget_chat" => budget_chat::run(addr).await,
+                "unusual_database_program" => unusual_database_program::run(addr).await,
                 c => Err(anyhow!("Invalid command: {}", c)),
             } {
                 error!("Failed to run command {}: {:?}", app.cmd, e);
