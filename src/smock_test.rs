@@ -3,7 +3,7 @@ use std::net::SocketAddr;
 use anyhow::Result;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
-use tracing::{error, info};
+use tracing::error;
 
 pub(crate) async fn run(mut socket: TcpStream, remote_addr: SocketAddr) -> Result<()> {
     let mut buf = [0; 1024];
@@ -14,12 +14,10 @@ pub(crate) async fn run(mut socket: TcpStream, remote_addr: SocketAddr) -> Resul
         }
 
         if let Err(e) = socket.write_all(&buf[0..n]).await {
-            error!("Failed to write to socket: {:?}", e);
+            error!("Failed to write to socket {}: {:?}", remote_addr, e);
             break;
         }
     }
-
-    info!("Dropping connection {}", remote_addr);
 
     Ok(())
 }

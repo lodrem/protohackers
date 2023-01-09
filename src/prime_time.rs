@@ -68,7 +68,7 @@ fn is_prime(n: f64) -> bool {
     true
 }
 
-pub async fn run(mut socket: TcpStream, remote_addr: SocketAddr) -> Result<()> {
+pub async fn run(mut socket: TcpStream, _remote_addr: SocketAddr) -> Result<()> {
     let (rh, mut wh) = socket.split();
     let mut reader = BufReader::new(rh);
     loop {
@@ -100,8 +100,6 @@ pub async fn run(mut socket: TcpStream, remote_addr: SocketAddr) -> Result<()> {
             }
         }
     }
-
-    info!("Dropping connection {}", remote_addr);
 
     Ok(())
 }

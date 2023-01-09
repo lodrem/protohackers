@@ -4,7 +4,6 @@ use std::net::SocketAddr;
 use anyhow::Result;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
-use tracing::{info, warn};
 
 struct State {
     m: BTreeMap<i32, i32>,
@@ -35,7 +34,7 @@ impl State {
     }
 }
 
-pub async fn run(mut socket: TcpStream, remote_addr: SocketAddr) -> Result<()> {
+pub async fn run(mut socket: TcpStream, _remote_addr: SocketAddr) -> Result<()> {
     let (mut rh, mut wh) = socket.split();
     let mut state = State::new();
 
@@ -44,27 +43,13 @@ pub async fn run(mut socket: TcpStream, remote_addr: SocketAddr) -> Result<()> {
         let lhs = rh.read_i32().await?;
         let rhs = rh.read_i32().await?;
         match op {
-            b'I' => {
-                info!("Inserting price {} at {} from {}", rhs, lhs, remote_addr);
-                state.insert(rhs, lhs);
-            }
-            b'Q' => {
-                info!(
-                    "Querying price from {} to {} from {}",
-                    lhs, rhs, remote_addr
-                );
-                let rv = state.query(lhs, rhs);
-                info!("Writing query result {} to {}", rv, remote_addr);
-                wh.write_i32(rv).await?;
-            }
+            b'I' => state.insert(rhs, lhs),
+            b'Q' => wh.write_i32(state.query(lhs, rhs)).await?,
             _ => {
-                warn!("Unknown operation: {}", op);
                 break;
             }
         };
     }
-
-    info!("Dropping connection {}", remote_addr);
 
     Ok(())
 }
