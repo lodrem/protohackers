@@ -37,9 +37,9 @@ pub async fn run(mut socket: TcpStream, remote_addr: SocketAddr) -> Result<()> {
                         cnt += 1;
                     }
                     if cnt == 0 {
-                        (rv / cnt) as i32
-                    } else {
                         0
+                    } else {
+                        (rv / cnt) as i32
                     }
                 } else {
                     0
