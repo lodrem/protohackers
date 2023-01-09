@@ -120,7 +120,7 @@ where
 }
 
 fn is_valid_name(name: &str) -> bool {
-    name.chars().all(char::is_alphanumeric)
+    !name.is_empty() && name.chars().all(char::is_alphanumeric)
 }
 
 async fn handle(socket: TcpStream, remote_addr: SocketAddr, mut state: Room) -> Result<()> {
