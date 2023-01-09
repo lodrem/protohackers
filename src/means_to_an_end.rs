@@ -29,14 +29,14 @@ pub async fn run(mut socket: TcpStream, remote_addr: SocketAddr) -> Result<()> {
                     "Querying price from {} to {} from {}",
                     min_time, max_time, remote_addr
                 );
-                let mut rv = 0.0;
+                let mut rv = 0;
                 let mut cnt = 0;
                 let rv = if min_time <= max_time {
                     for (_, &v) in m.range(min_time..=max_time) {
-                        rv += v as f64;
+                        rv += v as i128;
                         cnt += 1;
                     }
-                    (rv / cnt as f64) as i32
+                    (rv / cnt) as i32
                 } else {
                     0
                 };
