@@ -1,5 +1,6 @@
 mod signal;
 
+mod means_to_an_end;
 mod prime_time;
 mod smock_test;
 
@@ -38,6 +39,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             if let Err(e) = match app.cmd.as_str() {
                 "smoke_test" => serve_tcp(addr, smock_test::run).await,
                 "prime_time" => serve_tcp(addr, prime_time::run).await,
+                "means_to_an_end" => serve_tcp(addr, means_to_an_end::run).await,
                 c => Err(anyhow!("Invalid command: {}", c)),
             } {
                 error!("Failed to run command {}: {:?}", app.cmd, e);
