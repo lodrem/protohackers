@@ -31,14 +31,14 @@ pub async fn run(mut socket: TcpStream, remote_addr: SocketAddr) -> Result<()> {
                 );
                 let mut rv = 0.0;
                 let mut cnt = 0;
-                for (_, &v) in m.range(min_time..=max_time) {
-                    rv += v as f64;
-                    cnt += 1;
-                }
-                let rv = if cnt == 0 {
-                    0
-                } else {
+                let rv = if min_time <= max_time {
+                    for (_, &v) in m.range(min_time..=max_time) {
+                        rv += v as f64;
+                        cnt += 1;
+                    }
                     (rv / cnt as f64) as i32
+                } else {
+                    0
                 };
                 info!("Writing query result {} to {}", rv, remote_addr);
                 if let Err(e) = wh.write_i32(rv).await {
