@@ -111,6 +111,7 @@ mod prime_time {
             "{}\n",
             serde_json::to_string(&data).expect("serialize response")
         );
+        info!("Outgoing response: {}", data.trim());
         if let Err(e) = writer.write_all(data.as_bytes()).await {
             error!("Failed to respond data: {:?}", e);
         }
@@ -153,6 +154,8 @@ mod prime_time {
                 break;
             }
 
+            info!("Incoming request: {}", line.trim());
+
             match Request::from_str(&line) {
                 Ok(req) if req.method == EXPECTED_METHOD => {
                     respond(
@@ -165,7 +168,7 @@ mod prime_time {
                     .await
                 }
                 Err(e) => {
-                    error!("Failed to deserialize request {}: {:?}", line, e);
+                    error!("Failed to deserialize request {}: {:?}", line.trim(), e);
                     fail(&mut wh).await;
                     break;
                 }
