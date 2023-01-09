@@ -11,7 +11,7 @@ const EXPECTED_METHOD: &'static str = "isPrime";
 #[derive(Deserialize)]
 struct Request {
     pub method: String,
-    pub number: isize,
+    pub number: f64,
 }
 
 impl Request {
@@ -55,11 +55,13 @@ where
     .await;
 }
 
-fn is_prime(n: isize) -> bool {
-    if n <= 1 {
+fn is_prime(n: f64) -> bool {
+    if n <= 1.0 || n.floor() != n {
         return false;
     }
-    for i in 2..=(n as f64).sqrt() as isize {
+    let limit = n.sqrt() as u64;
+    let n = n as u64;
+    for i in 2..=limit {
         if n % i == 0 {
             return false;
         }
