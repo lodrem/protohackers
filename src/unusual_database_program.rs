@@ -18,11 +18,7 @@ pub async fn run(addr: SocketAddr) -> Result<()> {
 
         let kv = kv.clone();
         tokio::spawn(async move {
-            let req = {
-                let mut req = String::from_utf8_lossy(&buf[0..n]).to_string();
-                req.pop();
-                req
-            };
+            let req = String::from_utf8_lossy(&buf[0..n]).to_string();
             match req.split_once('=') {
                 Some((k, v)) => {
                     info!("Inserting key-value pair: {} = {}", k, v);
