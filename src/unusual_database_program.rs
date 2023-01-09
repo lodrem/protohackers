@@ -25,6 +25,7 @@ pub async fn run(addr: SocketAddr) -> Result<()> {
                     kv.write().unwrap().insert(k.to_owned(), v.to_owned());
                 }
                 None => {
+                    info!("Querying key-value pair: {}", req);
                     let resp = {
                         let v = kv.read().unwrap().get(&req).cloned().unwrap_or_default();
                         format!("{}={}", req, v)
