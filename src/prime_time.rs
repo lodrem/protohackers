@@ -6,6 +6,8 @@ use tokio::io::{AsyncBufReadExt, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
 use tracing::{error, info};
 
+use crate::tcp;
+
 const EXPECTED_METHOD: &'static str = "isPrime";
 
 #[derive(Deserialize)]
@@ -68,7 +70,7 @@ fn is_prime(n: f64) -> bool {
     true
 }
 
-pub async fn run(mut socket: TcpStream, _remote_addr: SocketAddr) -> Result<()> {
+async fn handle(mut socket: TcpStream, _remote_addr: SocketAddr) -> Result<()> {
     let (rh, mut wh) = socket.split();
     let mut reader = BufReader::new(rh);
     loop {
@@ -102,4 +104,8 @@ pub async fn run(mut socket: TcpStream, _remote_addr: SocketAddr) -> Result<()> 
     }
 
     Ok(())
+}
+
+pub async fn run(addr: SocketAddr) -> Result<()> {
+    tcp::serve(addr, handle).await
 }

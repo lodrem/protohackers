@@ -5,7 +5,9 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tracing::error;
 
-pub(crate) async fn run(mut socket: TcpStream, remote_addr: SocketAddr) -> Result<()> {
+use crate::tcp;
+
+async fn handle(mut socket: TcpStream, remote_addr: SocketAddr) -> Result<()> {
     let mut buf = [0; 1024];
 
     while let Ok(n) = socket.read(&mut buf).await {
@@ -20,4 +22,8 @@ pub(crate) async fn run(mut socket: TcpStream, remote_addr: SocketAddr) -> Resul
     }
 
     Ok(())
+}
+
+pub async fn run(addr: SocketAddr) -> Result<()> {
+    tcp::serve(addr, handle).await
 }

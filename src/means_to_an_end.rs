@@ -5,6 +5,8 @@ use anyhow::Result;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
+use crate::tcp;
+
 struct State {
     m: BTreeMap<i32, i32>,
 }
@@ -34,7 +36,7 @@ impl State {
     }
 }
 
-pub async fn run(mut socket: TcpStream, _remote_addr: SocketAddr) -> Result<()> {
+async fn handle(mut socket: TcpStream, _remote_addr: SocketAddr) -> Result<()> {
     let (mut rh, mut wh) = socket.split();
     let mut state = State::new();
 
@@ -52,4 +54,8 @@ pub async fn run(mut socket: TcpStream, _remote_addr: SocketAddr) -> Result<()> 
     }
 
     Ok(())
+}
+
+pub async fn run(addr: SocketAddr) -> Result<()> {
+    tcp::serve(addr, handle).await
 }
