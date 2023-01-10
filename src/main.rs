@@ -2,6 +2,7 @@ mod signal;
 mod tcp;
 
 mod budget_chat;
+mod job_centre;
 mod means_to_an_end;
 mod prime_time;
 mod smock_test;
@@ -41,6 +42,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 "means_to_an_end" => means_to_an_end::run(addr).await,
                 "budget_chat" => budget_chat::run(addr).await,
                 "unusual_database_program" => unusual_database_program::run(addr).await,
+                "job_centre" => job_centre::run(addr).await,
                 c => Err(anyhow!("Invalid command: {}", c)),
             } {
                 error!("Failed to run command {}: {:?}", app.cmd, e);
