@@ -57,8 +57,6 @@ fn rewrite_message(message: String) -> String {
     let re = Regex::new(r"(^|\s)7[0-9A-Za-z]{25,34}($|\s)").unwrap();
     let target = re.replace(&message, TARGET_ADDRESS).to_string();
 
-    info!("Rewrite '{}' to '{}'", message, target);
-
     target
 }
 
