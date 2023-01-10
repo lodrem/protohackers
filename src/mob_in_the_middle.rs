@@ -2,6 +2,7 @@ use std::cmp;
 use std::net::SocketAddr;
 
 use anyhow::{anyhow, Result};
+use regex::Regex;
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
 use tracing::{error, info};
@@ -122,12 +123,12 @@ fn rewrite_postfix(original: String) -> String {
 }
 
 fn rewrite_message(mut message: String) -> String {
-    info!("original message: '{}'", message);
-    message = rewrite_prefix(message);
-    info!("after rewriting prefix: '{}'", message);
-    message = rewrite_postfix(message);
-    info!("after rewriting postfix: '{}'", message);
-    message
+    let re = Regex::new(r"7[0-9A-Za-z]{25,34}").unwrap();
+    let target = re.replace(&message, TARGET_ADDRESS).to_string();
+
+    info!("Rewrite '{}' to '{}'", message, target);
+
+    target
 }
 
 async fn handle(mut socket: TcpStream, _remote_addr: SocketAddr) -> Result<()> {
