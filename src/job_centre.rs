@@ -11,7 +11,7 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::watch;
 use tracing::{error, info};
 
-#[derive(Clone, Eq, PartialEq)]
+#[derive(Clone)]
 struct Job {
     pub id: u64,
     pub queue: String,
@@ -31,6 +31,14 @@ impl PartialOrd for Job {
     }
 }
 
+impl Eq for Job {}
+
+impl PartialEq for Job {
+    fn eq(&self, other: &Self) -> bool {
+        self.id.eq(&other.id)
+    }
+}
+
 type WatcherTx = watch::Sender<()>;
 type WatcherRx = watch::Receiver<()>;
 
@@ -39,6 +47,7 @@ struct Inner {
     watcher_rx: WatcherRx,
     queues: HashMap<String, BinaryHeap<Job>>,
     id_generator: u64,
+    living_jobs: HashMap<u64, Job>,
 }
 impl Inner {
     fn next_job_id(&mut self) -> u64 {
@@ -62,6 +71,7 @@ impl State {
                 watcher_rx: rx,
                 queues: HashMap::new(),
                 id_generator: 1,
+                living_jobs: HashMap::new(),
             })),
         }
     }
@@ -83,6 +93,7 @@ impl State {
         };
 
         q.push(job.clone());
+        inner.living_jobs.insert(job.id, job.clone());
         // notify watcher
         inner.watcher_tx.send(()).unwrap();
 
@@ -112,9 +123,29 @@ impl State {
 
     pub fn abort_job(&mut self, job: Job) {
         let mut inner = self.inner.lock().unwrap();
+        if !inner.living_jobs.contains_key(&job.id) {
+            return;
+        }
+
         inner.queues.get_mut(&job.queue).unwrap().push(job);
         // notify watcher
         inner.watcher_tx.send(()).unwrap();
+    }
+
+    pub fn delete_job(&mut self, id: u64) -> Option<Job> {
+        let mut inner = self.inner.lock().unwrap();
+        match inner.living_jobs.remove(&id) {
+            Some(job) => {
+                // remove from queue
+                let q = inner.queues.remove(&job.queue).unwrap();
+                inner.queues.insert(
+                    job.queue.clone(),
+                    q.into_iter().filter(|job| job.id != id).collect(),
+                );
+                Some(job)
+            }
+            _ => None,
+        }
     }
 
     pub fn watch(&mut self) -> WatcherRx {
@@ -177,10 +208,6 @@ impl WorkingQueue {
             }
             _ => None,
         }
-    }
-
-    pub fn delete(&mut self, id: u64) -> Option<Job> {
-        self.jobs.remove(&id)
     }
 }
 
@@ -290,7 +317,7 @@ async fn handle(mut socket: TcpStream, remote_addr: SocketAddr, mut state: State
                 Some(_) => ctx.ok(id).await?,
                 None => ctx.no_job().await?,
             },
-            Ok(Request::Delete { id }) => match working_jobs.delete(id) {
+            Ok(Request::Delete { id }) => match state.delete_job(id) {
                 Some(_) => ctx.ok(id).await?,
                 None => ctx.no_job().await?,
             },
