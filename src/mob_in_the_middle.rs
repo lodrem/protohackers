@@ -33,12 +33,13 @@ where
     }
 
     pub async fn incoming_request(&mut self) -> Result<Request> {
-        let mut line = String::new();
-        match self.reader.read_line(&mut line).await {
+        let mut line = Vec::new();
+        match self.reader.read_until(b'\n', &mut line).await {
             Ok(n) if n == 0 => Ok(Request::Closed),
             Ok(_) => {
                 line.pop();
-                Ok(Request::Message(line))
+                let message = String::from_utf8_lossy(&line).to_string();
+                Ok(Request::Message(message))
             }
             Err(e) => Err(anyhow!("Failed to read incoming request: {:?}", e)),
         }
@@ -76,8 +77,9 @@ async fn handle(mut socket: TcpStream, remote_addr: SocketAddr) -> Result<()> {
         tokio::select! {
             req = downstream.incoming_request() => match req {
                 Ok(Request::Message(message)) => {
-                    info!("{} -> upstream: {}", remote_addr, message);
+                    info!("{} -> proxy: {}", remote_addr, message);
                     let resp = rewrite_message(message);
+                    info!("proxy -> upstream: {}", resp);
                     upstream.respond(resp).await?;
                 }
                 Ok(Request::Closed) => {
@@ -91,8 +93,9 @@ async fn handle(mut socket: TcpStream, remote_addr: SocketAddr) -> Result<()> {
             },
             req = upstream.incoming_request() => match req {
                 Ok(Request::Message(message)) => {
-                    info!("upstream -> {}: {}", remote_addr, message);
+                    info!("upstream -> proxy: {}", message);
                     let resp = rewrite_message(message);
+                    info!("proxy -> {}: {}", remote_addr, resp);
                     downstream.respond(resp).await?;
                 }
                 Ok(Request::Closed) => {
