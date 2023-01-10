@@ -1,4 +1,3 @@
-use std::cmp;
 use std::net::SocketAddr;
 
 use anyhow::{anyhow, Result};
@@ -23,7 +22,7 @@ struct Context<R, W> {
 
 impl<R, W> Context<R, W>
 where
-    R: AsyncRead + Unpin + AsyncBufReadExt,
+    R: AsyncRead + AsyncBufReadExt + Unpin,
     W: AsyncWrite + Unpin,
 {
     pub fn new(r: R, w: W) -> Self {
@@ -38,6 +37,7 @@ where
         match self.reader.read_line(&mut line).await {
             Ok(n) if n == 0 => Ok(Request::Closed),
             Ok(_) => {
+                info!("Received line: '{}'", line);
                 line.pop();
                 Ok(Request::Message(line))
             }
@@ -45,84 +45,16 @@ where
         }
     }
 
-    pub async fn respond(&mut self, content: &str) -> Result<()> {
+    pub async fn respond(&mut self, mut content: String) -> Result<()> {
+        content.push('\n');
         self.writer.write_all(content.as_bytes()).await?;
-        self.writer.write_u8(b'\n').await?;
-        self.writer.flush().await?;
         Ok(())
     }
 }
 
 const TARGET_ADDRESS: &'static str = "7YWHMfk9JZe0LM0g1ZauHuiSxhI";
 
-#[inline]
-fn is_boguscoin_address(s: &str) -> bool {
-    info!("Checking address: '{}'", s);
-    26 <= s.len() && s.len() <= 35 && s.starts_with('7') && s.chars().all(char::is_alphanumeric)
-}
-
-#[inline]
-fn rewrite_prefix(original: String) -> String {
-    if original.len() < 26 {
-        return original;
-    }
-
-    let bytes = original.as_bytes();
-
-    let l = if bytes[0] == b' ' { 1 } else { 0 };
-    let r = {
-        let mut r = l;
-        while r < bytes.len() && bytes[r] != b' ' {
-            r += 1;
-        }
-        cmp::min(r, bytes.len())
-    };
-    if is_boguscoin_address(String::from_utf8_lossy(&bytes[l..r]).as_ref()) {
-        // rewrite the prefix
-        let mut m = String::new();
-        if l == 1 {
-            m.push(' ');
-        }
-        m.push_str(TARGET_ADDRESS);
-        m.push_str(String::from_utf8_lossy(&bytes[r..]).as_ref());
-        m
-    } else {
-        original
-    }
-}
-
-#[inline]
-fn rewrite_postfix(original: String) -> String {
-    if original.len() < 26 {
-        return original;
-    }
-
-    let bytes = original.as_bytes();
-    let len = bytes.len();
-
-    let r = if bytes[len - 1] == b' ' { len - 1 } else { len };
-    let l = {
-        let mut l = r as isize - 1;
-        while 0 <= l - 1 && bytes[l as usize - 1] != b' ' {
-            l -= 1;
-        }
-        cmp::max(l, 0) as usize
-    };
-    if is_boguscoin_address(String::from_utf8_lossy(&bytes[l..r]).as_ref()) {
-        // rewrite the postfix
-        let mut m = String::new();
-        m.push_str(String::from_utf8_lossy(&bytes[0..l]).as_ref());
-        m.push_str(TARGET_ADDRESS);
-        if r == len - 1 {
-            m.push(' ');
-        }
-        m
-    } else {
-        original
-    }
-}
-
-fn rewrite_message(mut message: String) -> String {
+fn rewrite_message(message: String) -> String {
     let re = Regex::new(r"7[0-9A-Za-z]{25,34}").unwrap();
     let target = re.replace(&message, TARGET_ADDRESS).to_string();
 
@@ -149,7 +81,7 @@ async fn handle(mut socket: TcpStream, _remote_addr: SocketAddr) -> Result<()> {
             req = downstream.incoming_request() => match req {
                 Ok(Request::Message(message)) => {
                     let resp = rewrite_message(message);
-                    upstream.respond(&resp).await?;
+                    upstream.respond(resp).await?;
                 }
                 Ok(Request::Closed) => {
                     info!("Downstream closed connection");
@@ -163,7 +95,7 @@ async fn handle(mut socket: TcpStream, _remote_addr: SocketAddr) -> Result<()> {
             req = upstream.incoming_request() => match req {
                 Ok(Request::Message(message)) => {
                     let resp = rewrite_message(message);
-                    downstream.respond(&resp).await?;
+                    downstream.respond(resp).await?;
                 }
                 Ok(Request::Closed) => {
                     info!("Upstream closed connection");
