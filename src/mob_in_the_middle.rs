@@ -1,7 +1,7 @@
 use std::net::SocketAddr;
 
 use anyhow::{anyhow, Result};
-use regex::Regex;
+use regex::{Captures, Regex};
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
 use tracing::{error, info};
@@ -18,8 +18,16 @@ enum Request {
 const TARGET_ADDRESS: &'static str = "7YWHMfk9JZe0LM0g1ZauHuiSxhI";
 
 fn rewrite_message(message: String) -> String {
-    let re = Regex::new(r"7[0-9A-Za-z]{25,34}").unwrap();
-    let target = re.replace_all(&message, TARGET_ADDRESS).to_string();
+    let re = Regex::new(r"7[0-9A-Za-z]{25,}").unwrap();
+    let target = re
+        .replace_all(&message, |caps: &Captures| {
+            if caps[0].len() <= 35 {
+                TARGET_ADDRESS.to_owned()
+            } else {
+                caps[0].to_owned()
+            }
+        })
+        .to_string();
 
     target
 }
