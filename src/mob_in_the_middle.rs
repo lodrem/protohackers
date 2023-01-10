@@ -52,63 +52,82 @@ where
     }
 }
 
+const TARGET_ADDRESS: &'static str = "7YWHMfk9JZe0LM0g1ZauHuiSxhI";
+
 #[inline]
 fn is_boguscoin_address(s: &str) -> bool {
-    info!("Checking address: {}", s);
+    info!("Checking address: '{}'", s);
     26 <= s.len() && s.len() <= 35 && s.starts_with('7') && s.chars().all(char::is_alphanumeric)
 }
 
-fn rewrite_message(message: String) -> String {
-    const TARGET_ADDRESS: &'static str = "7YWHMfk9JZe0LM0g1ZauHuiSxhI";
-
-    if message.len() < 26 {
-        return message;
+#[inline]
+fn rewrite_prefix(original: String) -> String {
+    if original.len() < 26 {
+        return original;
     }
-    let mut message = message.into_bytes();
 
-    let l = if message[0] == b' ' { 1 } else { 0 };
+    let bytes = original.as_bytes();
+
+    let l = if bytes[0] == b' ' { 1 } else { 0 };
     let r = {
         let mut r = l;
-        while r < message.len() && message[r] != b' ' {
+        while r < bytes.len() && bytes[r] != b' ' {
             r += 1;
         }
-        cmp::min(r, message.len())
+        cmp::min(r, bytes.len())
     };
-    if is_boguscoin_address(String::from_utf8_lossy(&message[l..r]).as_ref()) {
+    if is_boguscoin_address(String::from_utf8_lossy(&bytes[l..r]).as_ref()) {
         // rewrite the prefix
         let mut m = String::new();
         if l == 1 {
             m.push(' ');
         }
         m.push_str(TARGET_ADDRESS);
-        m.push_str(String::from_utf8_lossy(&message[r..]).as_ref());
-        message = m.into_bytes();
+        m.push_str(String::from_utf8_lossy(&bytes[r..]).as_ref());
+        m
+    } else {
+        original
+    }
+}
+
+#[inline]
+fn rewrite_postfix(original: String) -> String {
+    if original.len() < 26 {
+        return original;
     }
 
-    let r = if message[message.len() - 1] == b' ' {
-        message.len() - 1
-    } else {
-        message.len()
-    };
+    let bytes = original.as_bytes();
+    let len = bytes.len();
+
+    let r = if bytes[len - 1] == b' ' { len - 1 } else { len };
     let l = {
         let mut l = r as isize - 1;
-        while 0 <= l - 1 && message[l as usize - 1] != b' ' {
+        while 0 <= l - 1 && bytes[l as usize - 1] != b' ' {
             l -= 1;
         }
         cmp::max(l, 0) as usize
     };
-    if is_boguscoin_address(String::from_utf8_lossy(&message[l..r]).as_ref()) {
-        // rewrite the prefix
+    if is_boguscoin_address(String::from_utf8_lossy(&bytes[l..r]).as_ref()) {
+        // rewrite the postfix
         let mut m = String::new();
-        m.push_str(String::from_utf8_lossy(&message[0..l]).as_ref());
+        m.push_str(String::from_utf8_lossy(&bytes[0..l]).as_ref());
         m.push_str(TARGET_ADDRESS);
-        if r == message.len() - 1 {
+        if r == len - 1 {
             m.push(' ');
         }
-        message = m.into_bytes();
+        m
+    } else {
+        original
     }
+}
 
-    String::from_utf8_lossy(&message[..]).to_string()
+fn rewrite_message(mut message: String) -> String {
+    info!("original message: '{}'", message);
+    message = rewrite_prefix(message);
+    info!("after rewriting prefix: '{}'", message);
+    message = rewrite_postfix(message);
+    info!("after rewriting postfix: '{}'", message);
+    message
 }
 
 async fn handle(mut socket: TcpStream, _remote_addr: SocketAddr) -> Result<()> {
