@@ -18,18 +18,37 @@ enum Request {
 const TARGET_ADDRESS: &'static str = "7YWHMfk9JZe0LM0g1ZauHuiSxhI";
 
 fn rewrite_message(message: String) -> String {
-    let re = Regex::new(r"7[0-9A-Za-z]{25,}").unwrap();
-    let target = re
-        .replace_all(&message, |caps: &Captures| {
-            if caps[0].len() <= 35 {
-                TARGET_ADDRESS.to_owned()
+    let parts: Vec<String> = message
+        .split(' ')
+        .into_iter()
+        .map(|s| {
+            if s.starts_with('7')
+                && 26 <= s.len()
+                && s.len() <= 35
+                && s.chars().all(char::is_alphanumeric)
+            {
+                TARGET_ADDRESS
             } else {
-                caps[0].to_owned()
+                s
             }
+            .to_string()
         })
-        .to_string();
+        .collect();
 
-    target
+    parts.join(" ")
+
+    // let re = Regex::new(r"7[0-9A-Za-z]{25,}").unwrap();
+    // let target = re
+    //     .replace_all(&message, |caps: &Captures| {
+    //         if caps[0].len() <= 35 {
+    //             TARGET_ADDRESS.to_owned()
+    //         } else {
+    //             caps[0].to_owned()
+    //         }
+    //     })
+    //     .to_string();
+    //
+    // target
 }
 
 async fn incoming_message<R>(reader: &mut R) -> Result<Request>
