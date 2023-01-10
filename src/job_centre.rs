@@ -121,15 +121,16 @@ impl State {
         }
     }
 
-    pub fn abort_job(&mut self, job: Job) {
+    pub fn abort_job(&mut self, job: Job) -> Result<()> {
         let mut inner = self.inner.lock().unwrap();
         if !inner.living_jobs.contains_key(&job.id) {
-            return;
+            return Err(anyhow!("Job doesn't exist"));
         }
 
         inner.queues.get_mut(&job.queue).unwrap().push(job);
         // notify watcher
         inner.watcher_tx.send(()).unwrap();
+        Ok(())
     }
 
     pub fn delete_job(&mut self, id: u64) -> Option<Job> {
@@ -200,22 +201,22 @@ impl WorkingQueue {
         self.jobs.insert(job.id, job);
     }
 
-    pub fn abort(&mut self, id: u64) -> Option<Job> {
+    pub fn abort(&mut self, id: u64) -> Result<Job> {
         match self.jobs.remove(&id) {
             Some(job) => {
-                self.state.abort_job(job.clone());
-                Some(job)
+                self.state.abort_job(job.clone())?;
+                Ok(job)
             }
-            _ => None,
+            _ => Err(anyhow!("Job hasn't been assigned to the client")),
         }
     }
 }
 
 impl Drop for WorkingQueue {
     fn drop(&mut self) {
-        self.jobs
-            .iter()
-            .for_each(|(_, job)| self.state.abort_job(job.clone()));
+        self.jobs.iter().for_each(|(_, job)| {
+            let _ = self.state.abort_job(job.clone());
+        });
     }
 }
 
@@ -314,8 +315,8 @@ async fn handle(mut socket: TcpStream, remote_addr: SocketAddr, mut state: State
                 ctx.ok(job.id).await?;
             }
             Ok(Request::Abort { id }) => match working_jobs.abort(id) {
-                Some(_) => ctx.ok(id).await?,
-                None => ctx.no_job().await?,
+                Ok(_) => ctx.ok(id).await?,
+                _ => ctx.no_job().await?,
             },
             Ok(Request::Delete { id }) => match state.delete_job(id) {
                 Some(_) => ctx.ok(id).await?,
