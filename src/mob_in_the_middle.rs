@@ -54,34 +54,17 @@ where
 const TARGET_ADDRESS: &'static str = "7YWHMfk9JZe0LM0g1ZauHuiSxhI";
 
 fn rewrite_message(message: String) -> String {
-    let parts: Vec<&str> = message.split(' ').collect();
-    let parts: Vec<String> = parts
-        .into_iter()
-        .map(|p| {
-            if p.starts_with('7')
-                && 26 <= p.len()
-                && p.len() <= 35
-                && p.chars().all(char::is_alphanumeric)
-            {
-                TARGET_ADDRESS.to_owned()
-            } else {
-                p.to_owned()
-            }
-        })
-        .collect();
-    // let re = Regex::new(r"7[0-9A-Za-z]{25,34}").unwrap();
-    // let target = re.replace(&message, TARGET_ADDRESS).to_string();
-    let target = parts.join(" ");
+    let re = Regex::new(r"(^|\s)7[0-9A-Za-z]{25,34}($|\s)").unwrap();
+    let target = re.replace(&message, TARGET_ADDRESS).to_string();
 
     info!("Rewrite '{}' to '{}'", message, target);
 
     target
 }
 
-async fn handle(mut socket: TcpStream, _remote_addr: SocketAddr) -> Result<()> {
+async fn handle(mut socket: TcpStream, remote_addr: SocketAddr) -> Result<()> {
     let mut upstream = {
-        let socket = TcpStream::connect(UPSTREAM).await?;
-        let (rh, wh) = socket.into_split();
+        let (rh, wh) = (TcpStream::connect(UPSTREAM).await?).into_split();
         let reader = BufReader::new(rh);
         Context::new(reader, wh)
     };
@@ -95,6 +78,7 @@ async fn handle(mut socket: TcpStream, _remote_addr: SocketAddr) -> Result<()> {
         tokio::select! {
             req = downstream.incoming_request() => match req {
                 Ok(Request::Message(message)) => {
+                    info!("{} -> upstream: {}", remote_addr, message);
                     let resp = rewrite_message(message);
                     upstream.respond(resp).await?;
                 }
@@ -109,6 +93,7 @@ async fn handle(mut socket: TcpStream, _remote_addr: SocketAddr) -> Result<()> {
             },
             req = upstream.incoming_request() => match req {
                 Ok(Request::Message(message)) => {
+                    info!("upstream -> {}: {}", remote_addr, message);
                     let resp = rewrite_message(message);
                     downstream.respond(resp).await?;
                 }
