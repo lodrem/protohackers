@@ -54,6 +54,7 @@ where
 
 #[inline]
 fn is_boguscoin_address(s: &str) -> bool {
+    info!("Checking address: {}", s);
     26 <= s.len() && s.len() <= 35 && s.starts_with('7') && s.chars().all(char::is_alphanumeric)
 }
 
