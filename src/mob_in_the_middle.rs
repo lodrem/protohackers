@@ -37,7 +37,6 @@ where
         match self.reader.read_line(&mut line).await {
             Ok(n) if n == 0 => Ok(Request::Closed),
             Ok(_) => {
-                info!("Received line: '{}'", line);
                 line.pop();
                 Ok(Request::Message(line))
             }
@@ -55,8 +54,24 @@ where
 const TARGET_ADDRESS: &'static str = "7YWHMfk9JZe0LM0g1ZauHuiSxhI";
 
 fn rewrite_message(message: String) -> String {
-    let re = Regex::new(r"7[0-9A-Za-z]{25,34}").unwrap();
-    let target = re.replace(&message, TARGET_ADDRESS).to_string();
+    let parts: Vec<&str> = message.split(' ').collect();
+    let parts: Vec<String> = parts
+        .into_iter()
+        .map(|p| {
+            if p.starts_with('7')
+                && 26 <= p.len()
+                && p.len() <= 35
+                && p.chars().all(char::is_alphanumeric)
+            {
+                TARGET_ADDRESS.to_owned()
+            } else {
+                p.to_owned()
+            }
+        })
+        .collect();
+    // let re = Regex::new(r"7[0-9A-Za-z]{25,34}").unwrap();
+    // let target = re.replace(&message, TARGET_ADDRESS).to_string();
+    let target = parts.join(" ");
 
     info!("Rewrite '{}' to '{}'", message, target);
 
