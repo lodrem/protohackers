@@ -16,10 +16,10 @@ use tracing::{error, info, Level};
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct App {
-    #[arg(short, default_value = "0.0.0.0:8070")]
+    #[arg(long, default_value = "0.0.0.0:8070")]
     addr: String,
 
-    #[arg(short)]
+    #[arg(short, long)]
     cmd: String,
 }
 
