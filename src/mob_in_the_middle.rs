@@ -15,43 +15,6 @@ enum Request {
     Closed,
 }
 
-struct Context<R, W> {
-    reader: R,
-    writer: W,
-}
-
-impl<R, W> Context<R, W>
-where
-    R: AsyncRead + AsyncBufReadExt + Unpin,
-    W: AsyncWrite + Unpin,
-{
-    pub fn new(r: R, w: W) -> Self {
-        Self {
-            reader: r,
-            writer: w,
-        }
-    }
-
-    pub async fn incoming_request(&mut self) -> Result<Request> {
-        let mut line = Vec::new();
-        match self.reader.read_until(b'\n', &mut line).await {
-            Ok(n) if n == 0 => Ok(Request::Closed),
-            Ok(_) => {
-                line.pop();
-                let message = String::from_utf8_lossy(&line).to_string();
-                Ok(Request::Message(message))
-            }
-            Err(e) => Err(anyhow!("Failed to read incoming request: {:?}", e)),
-        }
-    }
-
-    pub async fn respond(&mut self, mut content: String) -> Result<()> {
-        content.push('\n');
-        self.writer.write_all(content.as_bytes()).await?;
-        Ok(())
-    }
-}
-
 const TARGET_ADDRESS: &'static str = "7YWHMfk9JZe0LM0g1ZauHuiSxhI";
 
 fn rewrite_message(message: String) -> String {
@@ -61,26 +24,50 @@ fn rewrite_message(message: String) -> String {
     target
 }
 
-async fn handle(mut socket: TcpStream, remote_addr: SocketAddr) -> Result<()> {
-    let mut upstream = {
+async fn incoming_message<R>(reader: &mut R) -> Result<Request>
+where
+    R: AsyncRead + AsyncBufReadExt + Unpin,
+{
+    let mut line = String::new();
+    match reader.read_line(&mut line).await {
+        Ok(n) if n == 0 => Ok(Request::Closed),
+        Ok(_) => {
+            line.pop();
+            Ok(Request::Message(line))
+        }
+        Err(e) => Err(anyhow!("Failed to read incoming request: {:?}", e)),
+    }
+}
+
+async fn outgoing_message<W>(writer: &mut W, mut content: String) -> Result<()>
+where
+    W: AsyncWrite + Unpin,
+{
+    content.push('\n');
+    writer.write_all(content.as_bytes()).await?;
+    Ok(())
+}
+
+async fn handle(socket: TcpStream, remote_addr: SocketAddr) -> Result<()> {
+    let (mut upstream_rh, mut upstream_wh) = {
         let (rh, wh) = (TcpStream::connect(UPSTREAM).await?).into_split();
         let reader = BufReader::new(rh);
-        Context::new(reader, wh)
+        (reader, wh)
     };
-    let mut downstream = {
-        let (rh, wh) = socket.split();
+    let (mut downstream_rh, mut downstream_wh) = {
+        let (rh, wh) = socket.into_split();
         let reader = BufReader::new(rh);
-        Context::new(reader, wh)
+        (reader, wh)
     };
 
-    loop {
-        tokio::select! {
-            req = downstream.incoming_request() => match req {
+    let t1 = tokio::spawn(async move {
+        loop {
+            match incoming_message(&mut downstream_rh).await {
                 Ok(Request::Message(message)) => {
                     info!("{} -> proxy: {}", remote_addr, message);
                     let resp = rewrite_message(message);
                     info!("proxy -> upstream: {}", resp);
-                    upstream.respond(resp).await?;
+                    outgoing_message(&mut upstream_wh, resp).await.unwrap();
                 }
                 Ok(Request::Closed) => {
                     info!("Downstream closed connection");
@@ -90,13 +77,18 @@ async fn handle(mut socket: TcpStream, remote_addr: SocketAddr) -> Result<()> {
                     error!("Failed to read from downstream: {:?}", e);
                     break;
                 }
-            },
-            req = upstream.incoming_request() => match req {
+            }
+        }
+    });
+
+    let t2 = tokio::spawn(async move {
+        loop {
+            match incoming_message(&mut upstream_rh).await {
                 Ok(Request::Message(message)) => {
                     info!("upstream -> proxy: {}", message);
                     let resp = rewrite_message(message);
                     info!("proxy -> {}: {}", remote_addr, resp);
-                    downstream.respond(resp).await?;
+                    outgoing_message(&mut downstream_wh, resp).await.unwrap();
                 }
                 Ok(Request::Closed) => {
                     info!("Upstream closed connection");
@@ -108,6 +100,11 @@ async fn handle(mut socket: TcpStream, remote_addr: SocketAddr) -> Result<()> {
                 }
             }
         }
+    });
+
+    tokio::select! {
+        _ = t1 => {},
+        _ = t2 => {},
     }
 
     Ok(())
