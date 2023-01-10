@@ -113,6 +113,8 @@ impl State {
     pub fn abort_job(&mut self, job: Job) {
         let mut inner = self.inner.lock().unwrap();
         inner.queues.get_mut(&job.queue).unwrap().push(job);
+        // notify watcher
+        inner.watcher_tx.send(()).unwrap();
     }
 
     pub fn watch(&mut self) -> WatcherRx {
@@ -150,12 +152,12 @@ impl Request {
     }
 }
 
-struct WorkingJobs {
+struct WorkingQueue {
     state: State,
     jobs: HashMap<u64, Job>,
 }
 
-impl WorkingJobs {
+impl WorkingQueue {
     pub fn new(state: State) -> Self {
         Self {
             state,
@@ -182,7 +184,7 @@ impl WorkingJobs {
     }
 }
 
-impl Drop for WorkingJobs {
+impl Drop for WorkingQueue {
     fn drop(&mut self) {
         self.jobs
             .iter()
@@ -248,7 +250,7 @@ async fn handle(mut socket: TcpStream, remote_addr: SocketAddr, mut state: State
         Context::new(wh, reader)
     };
 
-    let mut working_jobs = WorkingJobs::new(state.clone());
+    let mut working_jobs = WorkingQueue::new(state.clone());
 
     loop {
         match ctx.incoming_request().await {
