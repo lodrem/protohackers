@@ -249,8 +249,8 @@ async fn handle(mut socket: TcpStream, remote_addr: SocketAddr, mut state: State
         let reader = BufReader::new(rh);
         Context::new(wh, reader)
     };
-
     let mut working_jobs = WorkingQueue::new(state.clone());
+    let mut watcher = state.watch();
 
     loop {
         match ctx.incoming_request().await {
@@ -273,7 +273,7 @@ async fn handle(mut socket: TcpStream, remote_addr: SocketAddr, mut state: State
                         break;
                     }
                     _ => {
-                        state.watch().changed().await?;
+                        watcher.changed().await?;
                         continue;
                     }
                 }
