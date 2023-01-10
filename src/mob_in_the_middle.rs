@@ -54,7 +54,7 @@ where
 
 #[inline]
 fn is_boguscoin_address(s: &str) -> bool {
-    26 <= s.len() && s.len() <= 35 && s.chars().all(char::is_alphanumeric)
+    26 <= s.len() && s.len() <= 35 && s.starts_with('7') && s.chars().all(char::is_alphanumeric)
 }
 
 fn rewrite_message(message: String) -> String {
@@ -110,7 +110,7 @@ fn rewrite_message(message: String) -> String {
     String::from_utf8_lossy(&message[..]).to_string()
 }
 
-async fn handle(mut socket: TcpStream, remote_addr: SocketAddr) -> Result<()> {
+async fn handle(mut socket: TcpStream, _remote_addr: SocketAddr) -> Result<()> {
     let mut upstream = {
         let socket = TcpStream::connect(UPSTREAM).await?;
         let (rh, wh) = socket.into_split();
