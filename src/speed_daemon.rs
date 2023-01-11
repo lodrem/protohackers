@@ -337,7 +337,7 @@ async fn handle(socket: TcpStream, remote_addr: SocketAddr, mut channel: Channel
     loop {
         match incoming.next().await {
             Ok(Incoming::Role(r)) => {
-                if role.is_none() {
+                if role.is_some() {
                     // Role had been already assigned.
                     tx.send(Outgoing::Error {
                         message: format!("Should receive plate from camera"),
