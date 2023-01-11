@@ -467,7 +467,7 @@ async fn run_main_loop(mut rx: UnboundedReceiver<Event>) -> Result<()> {
                         let d2 = (*t2 as f64 / 86400.0).floor() as u32;
                         if dates.contains(&d2) {
                             info!(
-                                "plate {} already mark ticket at date {}, skip comparing this date",
+                                "plate {} already mark ticket at {}, skip comparing this date",
                                 plate, d2
                             );
                             continue;
@@ -477,7 +477,7 @@ async fn run_main_loop(mut rx: UnboundedReceiver<Event>) -> Result<()> {
                         let speed = (distance as f64 / (interval as f64 / 60.0 / 60.0)).round();
                         if (speed - limit as f64) < 0.5 {
                             info!(
-                                "plate {} in road {} with speed {} and {}, no ticket",
+                                "plate {} on road {} with speed {} and {}, no ticket",
                                 plate, road, speed, limit,
                             );
                             continue;
@@ -488,7 +488,7 @@ async fn run_main_loop(mut rx: UnboundedReceiver<Event>) -> Result<()> {
                             ((d2, *t2, *m2), (d1, timestamp, mile))
                         };
                         for d in d1..=d2 {
-                            info!("plate {} mark ticket at date {}", plate, d);
+                            info!("plate {} mark ticket at {}", plate, d);
                             dates.insert(d);
                         }
                         let ticket = Ticket {
@@ -503,12 +503,13 @@ async fn run_main_loop(mut rx: UnboundedReceiver<Event>) -> Result<()> {
                         let ds = road_to_dispatchers.entry(road).or_insert(HashSet::new());
                         if let Some(id) = ds.iter().next().cloned() {
                             info!(
-                                "server -> {}: dispatch ticket for plate {} in {}",
+                                "server -> {}: dispatch ticket for {} on {}",
                                 id, plate, road
                             );
                             let (_, tx) = dispatchers.get(&id).unwrap();
                             tx.send(Outgoing::Ticket(ticket)).unwrap();
                         } else {
+                            info!("no available dispatcher for {} on {}", plate, road);
                             // No available dispatchers
                             pending_tickets.push_back(ticket);
                         }
