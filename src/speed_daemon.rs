@@ -346,21 +346,33 @@ async fn handle(socket: TcpStream, remote_addr: SocketAddr, mut channel: Channel
                 }
                 role = Some(r.clone());
 
-                match r {
+                match r.clone() {
                     Role::Dispatcher { roads } => {
+                        info!("{} -> server: set role as Dispatcher", remote_addr);
                         channel.register_dispatcher(id.clone(), tx.clone(), roads)?;
+                        tx.send(Outgoing::WithRole(r))?;
                     }
                     Role::Camera { road, mile, limit } => {
+                        info!("{} -> server: set role as Camera", remote_addr);
                         channel.register_camera(id.clone(), tx.clone(), road, mile, limit)?;
+                        tx.send(Outgoing::WithRole(r))?;
                     }
                 }
             }
             Ok(Incoming::HeartbeatRequest { interval }) => {
+                info!(
+                    "{} -> server: request heartbeat with interval {}",
+                    remote_addr, interval
+                );
                 let interval = Duration::from_millis(interval as u64 * 100);
                 heartbeat_loop.reset(interval, tx.clone());
             }
             Ok(Incoming::Plate { plate, timestamp }) => match role {
                 Some(Role::Camera { road, mile, .. }) => {
+                    info!(
+                        "{} -> server: observe plate {} at {}",
+                        remote_addr, plate, timestamp
+                    );
                     channel.observe_plate(road, mile, plate, timestamp)?
                 }
                 _ => {
