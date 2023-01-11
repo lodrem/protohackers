@@ -29,12 +29,14 @@ struct Ticket {
     speed: u16,
 }
 
+#[derive(Clone)]
 enum Role {
     Camera { road: u16, mile: u16, limit: u16 },
     Dispatcher { roads: Vec<u16> },
 }
 
 enum Incoming {
+    Role(Role),
     Plate { plate: String, timestamp: u32 },
     HeartbeatRequest { interval: u32 },
 }
@@ -129,13 +131,13 @@ where
         Self { reader: r }
     }
 
-    pub async fn role(&mut self) -> Result<Role> {
+    pub async fn next(&mut self) -> Result<Incoming> {
         match self.reader.read_u8().await? {
             ROLE_CAMERA => {
                 let road = self.reader.read_u16().await?;
                 let mile = self.reader.read_u16().await?;
                 let limit = self.reader.read_u16().await?;
-                Ok(Role::Camera { road, mile, limit })
+                Ok(Incoming::Role(Role::Camera { road, mile, limit }))
             }
             ROLE_DISPATCHER => {
                 let num_roads = self.reader.read_u8().await? as usize;
@@ -143,14 +145,8 @@ where
                 for _ in 0..num_roads {
                     roads.push(self.reader.read_u16().await?);
                 }
-                Ok(Role::Dispatcher { roads })
+                Ok(Incoming::Role(Role::Dispatcher { roads }))
             }
-            typ => Err(anyhow!("Invalid message type: {}", typ)),
-        }
-    }
-
-    pub async fn next(&mut self) -> Result<Incoming> {
-        match self.reader.read_u8().await? {
             INCOMING_HEARTBEAT_REQUEST => {
                 let interval = self.reader.read_u32().await?;
                 Ok(Incoming::HeartbeatRequest { interval })
@@ -211,19 +207,19 @@ impl Channel {
     pub fn register_camera(
         &mut self,
         id: String,
+        tx: UnboundedSender<Outgoing>,
         road: u16,
         mile: u16,
         limit: u16,
-    ) -> Result<(UnboundedSender<Outgoing>, UnboundedReceiver<Outgoing>)> {
-        let (tx, rx) = unbounded_channel();
+    ) -> Result<()> {
         self.tx.send(Event::RegisterCamera {
             id,
             road,
             mile,
             limit,
-            tx: tx.clone(),
+            tx,
         })?;
-        Ok((tx, rx))
+        Ok(())
     }
     pub fn unregister_camera(&mut self, id: String) -> Result<()> {
         self.tx.send(Event::UnregisterCamera { id })?;
@@ -232,15 +228,11 @@ impl Channel {
     pub fn register_dispatcher(
         &mut self,
         id: String,
+        tx: UnboundedSender<Outgoing>,
         roads: Vec<u16>,
-    ) -> Result<(UnboundedSender<Outgoing>, UnboundedReceiver<Outgoing>)> {
-        let (tx, rx) = unbounded_channel();
-        self.tx.send(Event::RegisterDispatcher {
-            id,
-            roads,
-            tx: tx.clone(),
-        })?;
-        Ok((tx, rx))
+    ) -> Result<()> {
+        self.tx.send(Event::RegisterDispatcher { id, roads, tx })?;
+        Ok(())
     }
     pub fn unregister_dispatcher(&mut self, id: String) -> Result<()> {
         self.tx.send(Event::UnregisterDispatcher { id })?;
@@ -342,70 +334,69 @@ async fn handle(socket: TcpStream, remote_addr: SocketAddr, mut channel: Channel
     let id = remote_addr.to_string();
     let (mut incoming, mut outgoing) = {
         let (rh, wh) = socket.into_split();
-        (IncomingProcessor::new(rh), OutgoingProcessor::new(wh))
+        (IncomingProcessor::new(rh), Some(OutgoingProcessor::new(wh)))
     };
 
     let mut heartbeat_loop = HeartbeatLoop::new();
+    let mut role: Option<Role> = None;
+    let (tx, rx) = unbounded_channel();
+    let mut rx = Some(rx);
 
-    match incoming.role().await {
-        Ok(Role::Dispatcher { roads }) => {
-            let (tx, rx) = channel.register_dispatcher(id.clone(), roads)?;
-            let mut ch = channel.clone();
-            tokio::spawn(async move {
-                let _ = run_dispatcher_loop(rx, outgoing).await;
-                let _ = ch.unregister_dispatcher(id);
-            });
+    loop {
+        match incoming.next().await {
+            Ok(Incoming::Role(r)) => {
+                if role.is_none() {
+                    // Role had been already assigned.
+                    tx.send(Outgoing::Error {
+                        message: format!("Should receive plate from camera"),
+                    })?;
+                    return Ok(());
+                }
+                role = Some(r.clone());
 
-            loop {
-                match incoming.next().await {
-                    Ok(Incoming::HeartbeatRequest { interval }) => {
-                        let interval = Duration::from_millis(interval as u64 * 100);
-                        heartbeat_loop.reset(interval, tx.clone());
+                let mut channel = channel.clone();
+                let id = id.clone();
+                let rx = rx.take().unwrap();
+                let outgoing = outgoing.take().unwrap();
+
+                match r {
+                    Role::Dispatcher { roads } => {
+                        channel.register_dispatcher(id.clone(), tx.clone(), roads)?;
+                        tokio::spawn(async move {
+                            let _ = run_dispatcher_loop(rx, outgoing).await;
+                            let _ = channel.unregister_dispatcher(id);
+                        });
                     }
-                    Ok(Incoming::Plate { .. }) => {
-                        tx.send(Outgoing::Error {
-                            message: format!("Should not receive plate from dispatcher"),
-                        })?;
-                        return Ok(());
-                    }
-                    Err(e) => {
-                        tx.send(Outgoing::Error {
-                            message: format!("Unexpected error: {:?}", e),
-                        })?;
-                        return Ok(());
+                    Role::Camera { road, mile, limit } => {
+                        channel.register_camera(id.clone(), tx.clone(), road, mile, limit)?;
+                        tokio::spawn(async move {
+                            let _ = run_camera_loop(rx, outgoing).await;
+                            let _ = channel.unregister_camera(id);
+                        });
                     }
                 }
             }
-        }
-        Ok(Role::Camera { road, mile, limit }) => {
-            let (tx, rx) = channel.register_camera(id.clone(), road, mile, limit)?;
-            let mut ch = channel.clone();
-            tokio::spawn(async move {
-                let _ = run_camera_loop(rx, outgoing).await;
-                let _ = ch.unregister_camera(id);
-            });
-
-            loop {
-                match incoming.next().await {
-                    Ok(Incoming::HeartbeatRequest { interval }) => {
-                        let interval = Duration::from_millis(interval as u64 * 100);
-                        heartbeat_loop.reset(interval, tx.clone());
-                    }
-                    Ok(Incoming::Plate { plate, timestamp }) => {
-                        channel.observe_plate(road, mile, plate, timestamp)?
-                    }
-                    Err(e) => {
-                        tx.send(Outgoing::Error {
-                            message: format!("Unexpected error: {:?}", e),
-                        })?;
-                        return Ok(());
-                    }
-                }
+            Ok(Incoming::HeartbeatRequest { interval }) => {
+                let interval = Duration::from_millis(interval as u64 * 100);
+                heartbeat_loop.reset(interval, tx.clone());
             }
-        }
-        Err(e) => {
-            outgoing.error(e).await?;
-            return Ok(());
+            Ok(Incoming::Plate { plate, timestamp }) => match role {
+                Some(Role::Camera { road, mile, .. }) => {
+                    channel.observe_plate(road, mile, plate, timestamp)?
+                }
+                _ => {
+                    tx.send(Outgoing::Error {
+                        message: format!("Should receive plate from camera"),
+                    })?;
+                    return Ok(());
+                }
+            },
+            Err(e) => {
+                tx.send(Outgoing::Error {
+                    message: format!("Unexpected error: {:?}", e),
+                })?;
+                return Ok(());
+            }
         }
     }
 }
@@ -530,7 +521,12 @@ pub async fn run(addr: SocketAddr) -> Result<()> {
     loop {
         match listener.accept().await {
             Ok((socket, remote_addr)) => {
-                tokio::spawn(handle(socket, remote_addr, channel.clone()));
+                let channel = channel.clone();
+                tokio::spawn(async move {
+                    info!("Accepting socket from {}", remote_addr);
+                    let _ = handle(socket, remote_addr, channel).await;
+                    info!("Dropping socket {}", remote_addr);
+                });
             }
             Err(e) => {
                 error!("Failed to accept socket: {:?}", e);
