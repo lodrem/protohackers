@@ -466,12 +466,20 @@ async fn run_main_loop(mut rx: UnboundedReceiver<Event>) -> Result<()> {
                     for (m2, t2) in miles.iter() {
                         let d2 = (*t2 as f64 / 86400.0).floor() as u32;
                         if dates.contains(&d2) {
+                            info!(
+                                "plate {} already mark ticket at date {}, skip comparing this date",
+                                plate, d2
+                            );
                             continue;
                         }
                         let distance = mile.abs_diff(*m2);
                         let interval = timestamp.abs_diff(*t2);
                         let speed = (distance as f64 / (interval as f64 / 60.0 / 60.0)).round();
                         if (speed - limit as f64) < 0.5 {
+                            info!(
+                                "plate {} in road {} with speed {} and {}, no ticket",
+                                plate, road, speed, limit,
+                            );
                             continue;
                         }
                         let ((d1, t1, m1), (d2, t2, m2)) = if timestamp < *t2 {
@@ -480,6 +488,7 @@ async fn run_main_loop(mut rx: UnboundedReceiver<Event>) -> Result<()> {
                             ((d2, *t2, *m2), (d1, timestamp, mile))
                         };
                         for d in d1..=d2 {
+                            info!("plate {} mark ticket at date {}", plate, d);
                             dates.insert(d);
                         }
                         let ticket = Ticket {
