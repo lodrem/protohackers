@@ -7,6 +7,7 @@ mod means_to_an_end;
 mod mob_in_the_middle;
 mod prime_time;
 mod smock_test;
+mod speed_daemon;
 mod unusual_database_program;
 
 use anyhow::{anyhow, Result};
@@ -45,6 +46,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 "unusual_database_program" => unusual_database_program::run(addr).await,
                 "job_centre" => job_centre::run(addr).await,
                 "mob_in_the_middle" => mob_in_the_middle::run(addr).await,
+                "speed_daemon" => speed_daemon::run(addr).await,
                 c => Err(anyhow!("Invalid command: {}", c)),
             } {
                 error!("Failed to run command {}: {:?}", app.cmd, e);

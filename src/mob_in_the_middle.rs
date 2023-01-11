@@ -1,7 +1,6 @@
 use std::net::SocketAddr;
 
 use anyhow::{anyhow, Result};
-use regex::{Captures, Regex};
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
 use tracing::{error, info};
