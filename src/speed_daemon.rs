@@ -370,8 +370,8 @@ async fn handle(socket: TcpStream, remote_addr: SocketAddr, mut channel: Channel
             Ok(Incoming::Plate { plate, timestamp }) => match role {
                 Some(Role::Camera { road, mile, .. }) => {
                     info!(
-                        "{} -> server: observe plate {} at {}",
-                        remote_addr, plate, timestamp
+                        "{} -> server: observe plate {} in {}/{} at {}",
+                        remote_addr, plate, road, mile, timestamp
                     );
                     channel.observe_plate(road, mile, plate, timestamp)?
                 }
@@ -420,6 +420,10 @@ async fn run_main_loop(mut rx: UnboundedReceiver<Event>) -> Result<()> {
                 }
                 pending_tickets.retain(|ticket| {
                     if roads.contains(&ticket.road) {
+                        info!(
+                            "server -> {}: dispatch ticket for plate {} in {}",
+                            id, ticket.plate, ticket.road
+                        );
                         tx.send(Outgoing::Ticket(ticket.clone())).unwrap();
                         true
                     } else {
@@ -489,6 +493,10 @@ async fn run_main_loop(mut rx: UnboundedReceiver<Event>) -> Result<()> {
                         };
                         let ds = road_to_dispatchers.entry(road).or_insert(HashSet::new());
                         if let Some(id) = ds.iter().next().cloned() {
+                            info!(
+                                "server -> {}: dispatch ticket for plate {} in {}",
+                                id, plate, road
+                            );
                             let (_, tx) = dispatchers.get(&id).unwrap();
                             tx.send(Outgoing::Ticket(ticket)).unwrap();
                         } else {
