@@ -36,19 +36,6 @@ fn rewrite_message(message: String) -> String {
         .collect();
 
     parts.join(" ")
-
-    // let re = Regex::new(r"7[0-9A-Za-z]{25,}").unwrap();
-    // let target = re
-    //     .replace_all(&message, |caps: &Captures| {
-    //         if caps[0].len() <= 35 {
-    //             TARGET_ADDRESS.to_owned()
-    //         } else {
-    //             caps[0].to_owned()
-    //         }
-    //     })
-    //     .to_string();
-    //
-    // target
 }
 
 async fn incoming_message<R>(reader: &mut R) -> Result<Request>
