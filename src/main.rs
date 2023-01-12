@@ -3,6 +3,7 @@ mod tcp;
 
 mod budget_chat;
 mod job_centre;
+mod line_reversal;
 mod means_to_an_end;
 mod mob_in_the_middle;
 mod prime_time;
