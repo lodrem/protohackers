@@ -207,7 +207,6 @@ struct Session {
     incoming_base_idx: usize,
     outgoing: BytesMut,
     outgoing_ack_pos: u64,
-    last_active_at: Instant,
     activity_marker: ActivityMarker,
 }
 
@@ -226,7 +225,6 @@ impl Session {
             incoming_base_idx: 0,
             outgoing: BytesMut::new(),
             outgoing_ack_pos: 0,
-            last_active_at: Instant::now(),
             activity_marker: marker,
         }
     }
@@ -269,7 +267,6 @@ impl Session {
             Ok(())
         } else if pos <= self.outgoing.len() as u64 {
             // send payload after pos
-            self.last_active_at = Instant::now();
             self.outgoing_ack_pos = pos;
             self.send_data().await?;
             Ok(())
@@ -280,9 +277,7 @@ impl Session {
     }
 
     pub async fn try_resend_data(&mut self, from_position: u64) -> Result<()> {
-        if from_position < self.outgoing_ack_pos
-            || self.last_active_at.elapsed() <= Duration::from_secs(3)
-        {
+        if from_position < self.outgoing_ack_pos {
             return Ok(());
         }
         warn!("{} <- Server: DATA retry as timeout", self.id);
@@ -322,7 +317,6 @@ impl Session {
     }
 
     async fn send_data(&mut self) -> Result<()> {
-        self.last_active_at = Instant::now();
         let position = self.outgoing_ack_pos;
         if position == self.outgoing.len() as u64 {
             info!("{} <- Server: all data had been sent out, skipped", self.id);
