@@ -273,7 +273,12 @@ impl Session {
             (l, r)
         };
         let data = String::from_utf8_lossy(&self.outgoing[l..r]).to_string();
-        info!("{} <- Server: at {} DATA '{}'", self.id, position, data);
+        info!(
+            "{} <- Server: at {} DATA '{}'",
+            self.id,
+            position,
+            data.replace('\n', "<NL>")
+        );
         let msg = Message::Data {
             session: self.id,
             position,
@@ -346,7 +351,12 @@ async fn run_main_loop(
                     position,
                     data,
                 } => {
-                    info!("{} -> Server: at {} DATA '{}'", session, position, data);
+                    info!(
+                        "{} -> Server: at {} DATA '{}'",
+                        session,
+                        position,
+                        data.replace('\n', "<NL>")
+                    );
                     if let Some(sess) = sessions.get_mut(&session) {
                         sess.recv_data(position, data.as_bytes()).await?;
                     } else {
