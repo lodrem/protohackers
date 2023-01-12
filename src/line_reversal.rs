@@ -236,8 +236,8 @@ impl Session {
         }
 
         self.incoming.extend_from_slice(buf);
-        let (mut l, r) = (self.incoming.len() - buf.len(), self.incoming.len());
-        let mut i = l;
+        let (mut l, r) = (0, self.incoming.len());
+        let mut i = self.incoming.len() - buf.len();
 
         while i < r {
             if self.incoming[i] == b'\n' {
