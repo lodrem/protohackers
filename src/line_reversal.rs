@@ -183,7 +183,6 @@ impl Session {
         }
 
         self.incoming.extend_from_slice(buf);
-        self.send_ack().await?;
 
         let (mut l, r) = (0, self.incoming.len());
         let mut i = l;
@@ -203,6 +202,7 @@ impl Session {
             self.incoming_base_idx += l;
             self.incoming.advance(l);
         }
+        self.send_ack().await?;
         self.send_data().await?;
 
         Ok(())
