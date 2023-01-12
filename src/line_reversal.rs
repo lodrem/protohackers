@@ -148,7 +148,7 @@ struct Session {
     id: SessionId,
     addr: SocketAddr,
     incoming: Vec<u8>,
-    incoming_sep_pos: usize,
+    incoming_base_idx: usize,
     outgoing: Vec<u8>,
     outgoing_ack_pos: u64,
     last_active_at: Instant,
@@ -167,7 +167,7 @@ impl Session {
             id,
             addr,
             incoming: Vec::new(),
-            incoming_sep_pos: 0,
+            incoming_base_idx: 0,
             outgoing: Vec::new(),
             outgoing_ack_pos: 0,
             last_active_at: Instant::now(),
@@ -184,7 +184,7 @@ impl Session {
         self.incoming.extend_from_slice(buf);
         self.send_ack().await?;
 
-        let (mut l, r) = (self.incoming_sep_pos, self.incoming.len());
+        let (mut l, r) = (0, self.incoming.len());
         let mut i = l;
 
         while i < r {
@@ -198,7 +198,10 @@ impl Session {
             }
             i += 1;
         }
-        self.incoming_sep_pos = l;
+        if 0 < l {
+            self.incoming_base_idx += l;
+            self.incoming = self.incoming.drain(..l).collect();
+        }
         self.send_data().await?;
 
         Ok(())
@@ -244,7 +247,8 @@ impl Session {
     }
 
     pub async fn send_ack(&mut self) -> Result<()> {
-        self.send_ack_with_pos(self.incoming.len() as u64).await
+        self.send_ack_with_pos((self.incoming.len() + self.incoming_base_idx) as u64)
+            .await
     }
 
     pub async fn send_ack_with_pos(&mut self, pos: u64) -> Result<()> {
