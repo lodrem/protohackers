@@ -185,16 +185,21 @@ impl Session {
         self.incoming.extend_from_slice(buf);
         self.send_ack().await?;
 
-        for i in self.incoming_sep_pos..self.incoming.len() {
+        let (mut l, r) = (self.incoming_sep_pos, self.incoming.len());
+        let mut i = l;
+
+        while i < r {
             if self.incoming[i] == b'\n' {
-                let mut data = self.incoming[self.incoming_sep_pos..i].to_vec();
+                let mut data = self.incoming[l..i].to_vec();
                 data.reverse();
                 data.push(b'\n');
 
                 self.outgoing.extend(data);
-                self.incoming_sep_pos = i + 1;
+                l = i + 1; // skip newline
             }
+            i += 1;
         }
+        self.incoming_sep_pos = l;
         self.send_data().await?;
 
         Ok(())
