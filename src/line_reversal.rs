@@ -5,6 +5,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, Result};
+use bytes::{Buf, BytesMut};
 use tokio::net::UdpSocket;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 use tracing::{error, info, warn};
@@ -147,9 +148,9 @@ struct Session {
     socket: Arc<UdpSocket>,
     id: SessionId,
     addr: SocketAddr,
-    incoming: Vec<u8>,
+    incoming: BytesMut,
     incoming_base_idx: usize,
-    outgoing: Vec<u8>,
+    outgoing: BytesMut,
     outgoing_ack_pos: u64,
     last_active_at: Instant,
 }
@@ -166,9 +167,9 @@ impl Session {
             socket,
             id,
             addr,
-            incoming: Vec::new(),
+            incoming: BytesMut::new(),
             incoming_base_idx: 0,
-            outgoing: Vec::new(),
+            outgoing: BytesMut::new(),
             outgoing_ack_pos: 0,
             last_active_at: Instant::now(),
         }
@@ -200,7 +201,7 @@ impl Session {
         }
         if 0 < l {
             self.incoming_base_idx += l;
-            self.incoming = self.incoming.drain(..l).collect();
+            self.incoming.advance(l);
         }
         self.send_data().await?;
 
