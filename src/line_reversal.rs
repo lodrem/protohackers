@@ -2,6 +2,7 @@ use std::cmp;
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, Result};
 use tokio::net::UdpSocket;
@@ -149,6 +150,7 @@ struct Session {
     incoming_sep_pos: usize,
     outgoing: Vec<u8>,
     outgoing_ack_pos: u64,
+    last_active_at: Instant,
 }
 
 impl Session {
@@ -167,10 +169,12 @@ impl Session {
             incoming_sep_pos: 0,
             outgoing: Vec::new(),
             outgoing_ack_pos: 0,
+            last_active_at: Instant::now(),
         }
     }
 
     pub async fn recv_data(&mut self, pos: u64, buf: &[u8]) -> Result<()> {
+        self.last_active_at = Instant::now();
         let pos = pos as usize;
         if pos <= self.incoming.len() {
             self.incoming.splice(pos.., buf.to_vec());
@@ -193,6 +197,7 @@ impl Session {
     }
 
     pub async fn recv_ack(&mut self, pos: u64) -> Result<()> {
+        self.last_active_at = Instant::now();
         if pos <= self.outgoing_ack_pos {
             // duplicated ack
             Ok(())
@@ -212,10 +217,12 @@ impl Session {
     }
 
     pub async fn try_resend_data(&mut self, from_position: u64) -> Result<()> {
-        if from_position < self.outgoing_ack_pos {
+        if from_position < self.outgoing_ack_pos
+            || self.last_active_at.elapsed() <= Duration::from_secs(3)
+        {
             return Ok(());
         }
-        info!("Server -> {}: DATA retry as timeout", self.addr);
+        warn!("Server -> {}: DATA retry as timeout", self.addr);
 
         self.send_data().await?;
 
@@ -224,7 +231,7 @@ impl Session {
 
     pub async fn send_close_if_expiry(&mut self, pos: u64) -> Result<bool> {
         if self.outgoing_ack_pos <= pos {
-            info!("Server -> {}: CLOSE as session expiry", self.addr);
+            warn!("Server -> {}: CLOSE as session expiry", self.addr);
             close_session(self.socket.clone(), self.addr.clone(), self.id).await?;
             Ok(true)
         } else {
@@ -244,6 +251,7 @@ impl Session {
     }
 
     async fn send_data(&mut self) -> Result<()> {
+        self.last_active_at = Instant::now();
         let position = self.outgoing_ack_pos;
         if position == self.outgoing.len() as u64 {
             info!(
@@ -274,7 +282,7 @@ impl Session {
             let session = self.id;
             let tx = self.tx.clone();
             tokio::spawn(async move {
-                use tokio::time::{sleep, Duration};
+                use tokio::time::sleep;
                 // Resend data if no ack to the position after 3s.
                 sleep(Duration::from_secs(3)).await;
                 tx.send(Event::ResendData {
