@@ -215,6 +215,7 @@ impl Session {
         if from_position < self.outgoing_ack_pos {
             return Ok(());
         }
+        info!("Server -> {}: DATA retry as timeout", self.addr);
 
         self.send_data().await?;
 
@@ -223,6 +224,7 @@ impl Session {
 
     pub async fn send_close_if_expiry(&mut self, pos: u64) -> Result<bool> {
         if self.outgoing_ack_pos <= pos {
+            info!("Server -> {}: CLOSE as session expiry", self.addr);
             close_session(self.socket.clone(), self.addr.clone(), self.id).await?;
             Ok(true)
         } else {
@@ -231,6 +233,7 @@ impl Session {
     }
 
     pub async fn send_ack(&mut self, pos: u64) -> Result<()> {
+        info!("Server -> {}: ACK {}", self.addr, pos);
         let data: String = Message::Ack {
             session: self.id,
             length: pos,
@@ -243,6 +246,10 @@ impl Session {
     async fn send_data(&mut self) -> Result<()> {
         let position = self.outgoing_ack_pos;
         if position == self.outgoing.len() as u64 {
+            info!(
+                "Server -> {}: all data had been sent out, skipped",
+                self.addr
+            );
             // All data is sent out, skipped.
             return Ok(());
         }
@@ -252,6 +259,7 @@ impl Session {
             (l, r)
         };
         let data = String::from_utf8_lossy(&self.outgoing[l..r]).to_string();
+        info!("Server -> {}: DATA '{}' from {}", self.addr, data, position);
         let msg = Message::Data {
             session: self.id,
             position,
@@ -306,12 +314,14 @@ async fn run_main_loop(
     tx: UnboundedSender<Event>,
     mut rx: UnboundedReceiver<Event>,
 ) -> Result<()> {
+    info!("Running main loop");
     let mut sessions: HashMap<SessionId, Session> = HashMap::new();
 
     while let Some(e) = rx.recv().await {
         match e {
             Event::Incoming { addr, message } => match message {
                 Message::Connect { session } => {
+                    info!("{} -> Server: CONNECT as {}", addr, session);
                     let sess = sessions
                         .entry(session)
                         .or_insert_with(|| Session::new(socket.clone(), tx.clone(), session, addr));
@@ -322,6 +332,7 @@ async fn run_main_loop(
                     position,
                     data,
                 } => {
+                    info!("{} -> Server: DATA '{}' from {}", addr, data, position);
                     if let Some(sess) = sessions.get_mut(&session) {
                         sess.recv_data(position, data.as_bytes()).await?;
                     } else {
@@ -329,6 +340,7 @@ async fn run_main_loop(
                     }
                 }
                 Message::Ack { session, length } => {
+                    info!("{} -> Server: ACK {}", addr, length);
                     if let Some(mut sess) = sessions.remove(&session) {
                         match sess.recv_ack(length).await {
                             Ok(()) => {
@@ -341,6 +353,7 @@ async fn run_main_loop(
                     }
                 }
                 Message::Close { session } => {
+                    info!("{} -> Server: CLOSE", addr);
                     close_session(socket.clone(), addr, session).await?;
                 }
             },
@@ -366,11 +379,13 @@ async fn run_main_loop(
 }
 
 async fn run_accept_loop(socket: Arc<UdpSocket>, tx: UnboundedSender<Event>) -> Result<()> {
+    info!("Running accepting loop");
     loop {
         let mut buf = [0; 1024];
         let socket = socket.clone();
         let (n, remote_addr) = socket.recv_from(&mut buf).await?;
         let tx = tx.clone();
+        info!("Received 1 packet from {}", remote_addr);
         tokio::spawn(async move {
             match Message::try_from(String::from_utf8_lossy(&buf[0..n]).to_string()) {
                 Ok(message) => {
