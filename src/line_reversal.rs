@@ -136,6 +136,7 @@ impl TryFrom<String> for Message {
 }
 
 async fn close_session(socket: Arc<UdpSocket>, addr: SocketAddr, session: SessionId) -> Result<()> {
+    info!("Server -> {}: CLOSE", addr);
     let data: String = Message::Close { session }.into();
     socket.send_to(data.as_bytes(), addr).await?;
     Ok(())
@@ -370,6 +371,7 @@ async fn run_main_loop(
                 Message::Close { session } => {
                     info!("{} -> Server: CLOSE", addr);
                     close_session(socket.clone(), addr, session).await?;
+                    sessions.remove(&session);
                 }
             },
             Event::ResendData {
