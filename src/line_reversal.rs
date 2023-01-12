@@ -165,7 +165,7 @@ impl ActivityMarker {
     }
 
     pub fn next(&mut self) -> (Vec<Activity>, Vec<Activity>) {
-        let resend_d = Duration::from_secs(1);
+        let resend_d = Duration::from_millis(500);
         let expiry_d = Duration::from_secs(60);
         let now = Instant::now();
         let mut resend = vec![];
@@ -375,7 +375,7 @@ async fn run_main_loop(
         tokio::spawn(async move {
             use tokio::time::sleep;
             loop {
-                sleep(Duration::from_secs(1)).await;
+                sleep(Duration::from_millis(300)).await;
 
                 let (resend, expiry) = marker.next();
 
