@@ -1,7 +1,7 @@
 use std::cmp;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::net::SocketAddr;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, Result};
@@ -136,6 +136,61 @@ impl TryFrom<String> for Message {
     }
 }
 
+type Activity = (Instant, SessionId, u64);
+
+struct ActivityMarkerInner {
+    resend_queue: VecDeque<Activity>,
+    expiry_queue: VecDeque<Activity>,
+}
+
+#[derive(Clone)]
+struct ActivityMarker {
+    inner: Arc<Mutex<ActivityMarkerInner>>,
+}
+
+impl ActivityMarker {
+    pub fn new() -> Self {
+        Self {
+            inner: Arc::new(Mutex::new(ActivityMarkerInner {
+                resend_queue: VecDeque::new(),
+                expiry_queue: VecDeque::new(),
+            })),
+        }
+    }
+
+    pub fn mark(&mut self, session: SessionId, when: Instant, position: u64) {
+        let mut inner = self.inner.lock().unwrap();
+        inner.resend_queue.push_back((when, session, position));
+        inner.expiry_queue.push_back((when, session, position));
+    }
+
+    pub fn next(&mut self) -> (Vec<Activity>, Vec<Activity>) {
+        let d = Duration::from_secs(3);
+        let now = Instant::now();
+        let mut resend = vec![];
+        let mut expiry = vec![];
+        let mut inner = self.inner.lock().unwrap();
+        while let Some(item) = inner.resend_queue.pop_front() {
+            if now.duration_since(item.0) >= d {
+                resend.push(item);
+            } else {
+                inner.resend_queue.push_front(item);
+                break;
+            }
+        }
+        while let Some(item) = inner.expiry_queue.pop_front() {
+            if now.duration_since(item.0) >= d {
+                expiry.push(item);
+            } else {
+                inner.expiry_queue.push_front(item);
+                break;
+            }
+        }
+
+        (resend, expiry)
+    }
+}
+
 async fn close_session(socket: Arc<UdpSocket>, addr: SocketAddr, session: SessionId) -> Result<()> {
     info!("{} <- Server: CLOSE", session);
     let data: String = Message::Close { session }.into();
@@ -144,7 +199,6 @@ async fn close_session(socket: Arc<UdpSocket>, addr: SocketAddr, session: Sessio
 }
 
 struct Session {
-    tx: UnboundedSender<Event>,
     socket: Arc<UdpSocket>,
     id: SessionId,
     addr: SocketAddr,
@@ -153,17 +207,17 @@ struct Session {
     outgoing: BytesMut,
     outgoing_ack_pos: u64,
     last_active_at: Instant,
+    activity_marker: ActivityMarker,
 }
 
 impl Session {
     pub fn new(
         socket: Arc<UdpSocket>,
-        tx: UnboundedSender<Event>,
         id: SessionId,
         addr: SocketAddr,
+        marker: ActivityMarker,
     ) -> Self {
         Self {
-            tx,
             socket,
             id,
             addr,
@@ -172,6 +226,7 @@ impl Session {
             outgoing: BytesMut::new(),
             outgoing_ack_pos: 0,
             last_active_at: Instant::now(),
+            activity_marker: marker,
         }
     }
 
@@ -294,25 +349,7 @@ impl Session {
         let message: String = msg.clone().into();
         self.socket.send_to(message.as_bytes(), self.addr).await?;
 
-        {
-            // Resend data if timeout.
-            let session = self.id;
-            let tx = self.tx.clone();
-            tokio::spawn(async move {
-                use tokio::time::sleep;
-                // Resend data if no ack to the position after 3s.
-                sleep(Duration::from_secs(3)).await;
-                tx.send(Event::ResendData {
-                    session,
-                    from_position: position,
-                })
-                .unwrap();
-
-                // Close session if no ack to the position after 60s.
-                sleep(Duration::from_secs(57)).await;
-                tx.send(Event::Expire { session, position }).unwrap();
-            });
-        }
+        self.activity_marker.mark(self.id, Instant::now(), position);
 
         Ok(())
     }
@@ -324,13 +361,9 @@ enum Event {
         addr: SocketAddr,
         message: Message,
     },
-    ResendData {
-        session: SessionId,
-        from_position: u64,
-    },
-    Expire {
-        session: SessionId,
-        position: u64,
+    Timeout {
+        resend_activities: Vec<Activity>,
+        expiry_activities: Vec<Activity>,
     },
 }
 
@@ -341,15 +374,38 @@ async fn run_main_loop(
 ) -> Result<()> {
     info!("Running main loop");
     let mut sessions: HashMap<SessionId, Session> = HashMap::new();
+    let marker = ActivityMarker::new();
+
+    {
+        let mut marker = marker.clone();
+        tokio::spawn(async move {
+            use tokio::time::sleep;
+            loop {
+                sleep(Duration::from_secs(1)).await;
+
+                let (resend, expiry) = marker.next();
+
+                if resend.is_empty() && expiry.is_empty() {
+                    continue;
+                }
+
+                tx.send(Event::Timeout {
+                    resend_activities: resend,
+                    expiry_activities: expiry,
+                })
+                .unwrap();
+            }
+        });
+    }
 
     while let Some(e) = rx.recv().await {
         match e {
             Event::Incoming { addr, message } => match message {
                 Message::Connect { session } => {
                     info!("{} -> Server: CONNECT as {}", session, session);
-                    let sess = sessions
-                        .entry(session)
-                        .or_insert_with(|| Session::new(socket.clone(), tx.clone(), session, addr));
+                    let sess = sessions.entry(session).or_insert_with(|| {
+                        Session::new(socket.clone(), session, addr, marker.clone())
+                    });
                     sess.send_ack_with_pos(0).await?;
                 }
                 Message::Data {
@@ -388,18 +444,21 @@ async fn run_main_loop(
                     sessions.remove(&session);
                 }
             },
-            Event::ResendData {
-                session,
-                from_position,
+            Event::Timeout {
+                resend_activities,
+                expiry_activities,
             } => {
-                if let Some(sess) = sessions.get_mut(&session) {
-                    sess.try_resend_data(from_position).await?;
+                for (_, session, position) in resend_activities {
+                    if let Some(sess) = sessions.get_mut(&session) {
+                        sess.try_resend_data(position).await?;
+                    }
                 }
-            }
-            Event::Expire { session, position } => {
-                if let Some(mut sess) = sessions.remove(&session) {
-                    if !sess.send_close_if_expiry(position).await? {
-                        sessions.insert(session, sess);
+
+                for (_, session, position) in expiry_activities {
+                    if let Some(mut sess) = sessions.remove(&session) {
+                        if !sess.send_close_if_expiry(position).await? {
+                            sessions.insert(session, sess);
+                        }
                     }
                 }
             }
