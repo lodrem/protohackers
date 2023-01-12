@@ -176,10 +176,13 @@ impl Session {
     pub async fn recv_data(&mut self, pos: u64, buf: &[u8]) -> Result<()> {
         self.last_active_at = Instant::now();
         let pos = pos as usize;
-        if pos <= self.incoming.len() {
-            self.incoming.splice(pos.., buf.to_vec());
+        if self.incoming.len() != pos {
+            self.send_ack().await?;
+            return Ok(());
         }
-        self.send_ack(self.incoming.len() as u64).await?;
+
+        self.incoming.extend_from_slice(buf);
+        self.send_ack().await?;
 
         for i in self.incoming_sep_pos..self.incoming.len() {
             if self.incoming[i] == b'\n' {
@@ -239,7 +242,11 @@ impl Session {
         }
     }
 
-    pub async fn send_ack(&mut self, pos: u64) -> Result<()> {
+    pub async fn send_ack(&mut self) -> Result<()> {
+        self.send_ack_with_pos(self.incoming.len() as u64).await
+    }
+
+    pub async fn send_ack_with_pos(&mut self, pos: u64) -> Result<()> {
         info!("Server -> {}: ACK {}", self.addr, pos);
         let data: String = Message::Ack {
             session: self.id,
@@ -263,7 +270,7 @@ impl Session {
         }
         let (l, r) = {
             let l = position as usize;
-            let r = cmp::min(l + 999, self.outgoing.len() as usize);
+            let r = cmp::min(l + 1000, self.outgoing.len() as usize);
             (l, r)
         };
         let data = String::from_utf8_lossy(&self.outgoing[l..r]).to_string();
@@ -333,7 +340,7 @@ async fn run_main_loop(
                     let sess = sessions
                         .entry(session)
                         .or_insert_with(|| Session::new(socket.clone(), tx.clone(), session, addr));
-                    sess.send_ack(0).await?;
+                    sess.send_ack_with_pos(0).await?;
                 }
                 Message::Data {
                     session,
@@ -395,8 +402,8 @@ async fn run_accept_loop(socket: Arc<UdpSocket>, tx: UnboundedSender<Event>) -> 
         let tx = tx.clone();
         info!("Received 1 packet from {}", remote_addr);
         tokio::spawn(async move {
-            if n >= 1000 {
-                warn!("Packet ({}) too large, should be less than 1000", n);
+            if n > 1000 {
+                warn!("Packet ({}) too large, should not be greater than 1000", n);
                 return;
             }
 
