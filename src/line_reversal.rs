@@ -136,7 +136,7 @@ impl TryFrom<String> for Message {
 }
 
 async fn close_session(socket: Arc<UdpSocket>, addr: SocketAddr, session: SessionId) -> Result<()> {
-    info!("{} -> Server: CLOSE", addr);
+    info!("{} <- Server: CLOSE", addr);
     let data: String = Message::Close { session }.into();
     socket.send_to(data.as_bytes(), addr).await?;
     Ok(())
@@ -227,7 +227,7 @@ impl Session {
         {
             return Ok(());
         }
-        warn!("{} -> Server: DATA retry as timeout", self.addr);
+        warn!("{} <- Server: DATA retry as timeout", self.addr);
 
         self.send_data().await?;
 
@@ -236,7 +236,7 @@ impl Session {
 
     pub async fn send_close_if_expiry(&mut self, pos: u64) -> Result<bool> {
         if self.outgoing_ack_pos <= pos {
-            warn!("{} -> Server: CLOSE as session expiry", self.addr);
+            warn!("{} <- Server: CLOSE as session expiry", self.addr);
             close_session(self.socket.clone(), self.addr.clone(), self.id).await?;
             Ok(true)
         } else {
@@ -249,7 +249,7 @@ impl Session {
     }
 
     pub async fn send_ack_with_pos(&mut self, pos: u64) -> Result<()> {
-        info!("{} -> Server: ACK {}", self.addr, pos);
+        info!("{} <- Server: ACK {}", self.addr, pos);
         let data: String = Message::Ack {
             session: self.id,
             length: pos,
@@ -264,7 +264,7 @@ impl Session {
         let position = self.outgoing_ack_pos;
         if position == self.outgoing.len() as u64 {
             info!(
-                "{} -> Server: all data had been sent out, skipped",
+                "{} <- Server: all data had been sent out, skipped",
                 self.addr
             );
             // All data is sent out, skipped.
@@ -276,7 +276,7 @@ impl Session {
             (l, r)
         };
         let data = String::from_utf8_lossy(&self.outgoing[l..r]).to_string();
-        info!("{} -> Server: at {} DATA '{}'", self.addr, position, data);
+        info!("{} <- Server: at {} DATA '{}'", self.addr, position, data);
         let msg = Message::Data {
             session: self.id,
             position,
