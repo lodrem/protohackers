@@ -165,7 +165,7 @@ impl ActivityMarker {
     }
 
     pub fn next(&mut self) -> (Vec<Activity>, Vec<Activity>) {
-        let resend_d = Duration::from_secs(3);
+        let resend_d = Duration::from_secs(1);
         let expiry_d = Duration::from_secs(60);
         let now = Instant::now();
         let mut resend = vec![];
