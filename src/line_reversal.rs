@@ -416,28 +416,25 @@ async fn run_accept_loop(socket: Arc<UdpSocket>, tx: UnboundedSender<Event>) -> 
         let socket = socket.clone();
         let (n, remote_addr) = socket.recv_from(&mut buf).await?;
         let tx = tx.clone();
-        tokio::spawn(async move {
-            if n > 1000 {
-                warn!("Packet ({}) too large, should not be greater than 1000", n);
-                return;
+        if n > 1000 {
+            warn!("Packet ({}) too large, should not be greater than 1000", n);
+            continue;
+        }
+        match Message::try_from(String::from_utf8_lossy(&buf[0..n]).to_string()) {
+            Ok(message) => {
+                tx.send(Event::Incoming {
+                    addr: remote_addr,
+                    message,
+                })
+                .unwrap();
             }
-
-            match Message::try_from(String::from_utf8_lossy(&buf[0..n]).to_string()) {
-                Ok(message) => {
-                    tx.send(Event::Incoming {
-                        addr: remote_addr,
-                        message,
-                    })
-                    .unwrap();
-                }
-                Err(e) => {
-                    error!(
-                        "Failed to parse message from {}, dropped: {:?}",
-                        remote_addr, e
-                    );
-                }
+            Err(e) => {
+                error!(
+                    "Failed to parse message from {}, dropped: {:?}",
+                    remote_addr, e
+                );
             }
-        });
+        }
     }
 }
 
