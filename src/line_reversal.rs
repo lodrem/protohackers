@@ -227,7 +227,10 @@ impl Session {
         {
             return Ok(());
         }
-        warn!("{} <- Server: DATA retry as timeout", self.addr);
+        warn!(
+            "[{}]{} <- Server: DATA retry as timeout",
+            self.id, self.addr
+        );
 
         self.send_data().await?;
 
@@ -236,7 +239,10 @@ impl Session {
 
     pub async fn send_close_if_expiry(&mut self, pos: u64) -> Result<bool> {
         if self.outgoing_ack_pos <= pos {
-            warn!("{} <- Server: CLOSE as session expiry", self.addr);
+            warn!(
+                "[{}]{} <- Server: CLOSE as session expiry",
+                self.id, self.addr
+            );
             close_session(self.socket.clone(), self.addr.clone(), self.id).await?;
             Ok(true)
         } else {
@@ -249,7 +255,7 @@ impl Session {
     }
 
     pub async fn send_ack_with_pos(&mut self, pos: u64) -> Result<()> {
-        info!("{} <- Server: ACK {}", self.addr, pos);
+        info!("[{}]{} <- Server: ACK {}", self.id, self.addr, pos);
         let data: String = Message::Ack {
             session: self.id,
             length: pos,
@@ -264,8 +270,8 @@ impl Session {
         let position = self.outgoing_ack_pos;
         if position == self.outgoing.len() as u64 {
             info!(
-                "{} <- Server: all data had been sent out, skipped",
-                self.addr
+                "[{}]{} <- Server: all data had been sent out, skipped",
+                self.id, self.addr
             );
             // All data is sent out, skipped.
             return Ok(());
@@ -276,7 +282,10 @@ impl Session {
             (l, r)
         };
         let data = String::from_utf8_lossy(&self.outgoing[l..r]).to_string();
-        info!("{} <- Server: at {} DATA '{}'", self.addr, position, data);
+        info!(
+            "[{}]{} <- Server: at {} DATA '{}'",
+            self.id, self.addr, position, data
+        );
         let msg = Message::Data {
             session: self.id,
             position,
@@ -338,7 +347,7 @@ async fn run_main_loop(
         match e {
             Event::Incoming { addr, message } => match message {
                 Message::Connect { session } => {
-                    info!("{} -> Server: CONNECT as {}", addr, session);
+                    info!("[{}]{} -> Server: CONNECT as {}", session, addr, session);
                     let sess = sessions
                         .entry(session)
                         .or_insert_with(|| Session::new(socket.clone(), tx.clone(), session, addr));
@@ -349,7 +358,10 @@ async fn run_main_loop(
                     position,
                     data,
                 } => {
-                    info!("{} -> Server: at {} DATA '{}'", addr, position, data);
+                    info!(
+                        "[{}]{} -> Server: at {} DATA '{}'",
+                        session, addr, position, data
+                    );
                     if let Some(sess) = sessions.get_mut(&session) {
                         sess.recv_data(position, data.as_bytes()).await?;
                     } else {
@@ -357,7 +369,7 @@ async fn run_main_loop(
                     }
                 }
                 Message::Ack { session, length } => {
-                    info!("{} -> Server: ACK {}", addr, length);
+                    info!("[{}]{} -> Server: ACK {}", session, addr, length);
                     if let Some(mut sess) = sessions.remove(&session) {
                         match sess.recv_ack(length).await {
                             Ok(()) => {
@@ -370,7 +382,7 @@ async fn run_main_loop(
                     }
                 }
                 Message::Close { session } => {
-                    info!("{} -> Server: CLOSE", addr);
+                    info!("[{}]{} -> Server: CLOSE", session, addr);
                     close_session(socket.clone(), addr, session).await?;
                     sessions.remove(&session);
                 }
