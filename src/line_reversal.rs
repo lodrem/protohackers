@@ -45,7 +45,7 @@ fn split(s: &str) -> Vec<String> {
             }
             r += 1;
         }
-        rv.push(String::from_utf8_lossy(&buf[l..r]).to_string());
+        rv.push(unsafe { String::from_utf8_unchecked(buf[l..r].to_vec()).to_string() });
         l = r + 1;
     }
     rv
@@ -327,7 +327,7 @@ impl Session {
             let r = cmp::min(l + 900, self.outgoing.len() as usize);
             (l, r)
         };
-        let data = String::from_utf8_lossy(&self.outgoing[l..r]).to_string();
+        let data = unsafe { String::from_utf8_unchecked(self.outgoing[l..r].to_vec()).to_string() };
         info!(
             "{} <- Server: at {} DATA '{}'",
             self.id,
@@ -464,8 +464,8 @@ async fn run_main_loop(
 
 async fn run_accept_loop(socket: Arc<UdpSocket>, tx: UnboundedSender<Event>) -> Result<()> {
     info!("Running accepting loop");
+    let mut buf = [0; 1024];
     loop {
-        let mut buf = [0; 1024];
         let socket = socket.clone();
         let (n, remote_addr) = socket.recv_from(&mut buf).await?;
         let tx = tx.clone();
@@ -473,7 +473,9 @@ async fn run_accept_loop(socket: Arc<UdpSocket>, tx: UnboundedSender<Event>) -> 
             warn!("Packet ({}) too large, should not be greater than 1000", n);
             continue;
         }
-        match Message::try_from(String::from_utf8_lossy(&buf[0..n]).to_string()) {
+        match Message::try_from(unsafe {
+            String::from_utf8_unchecked(buf[0..n].to_vec()).to_string()
+        }) {
             Ok(message) => {
                 tx.send(Event::Incoming {
                     addr: remote_addr,
