@@ -48,6 +48,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 "job_centre" => job_centre::run(addr).await,
                 "mob_in_the_middle" => mob_in_the_middle::run(addr).await,
                 "speed_daemon" => speed_daemon::run(addr).await,
+                "line_reversal" => line_reversal::run(addr).await,
                 c => Err(anyhow!("Invalid command: {}", c)),
             } {
                 error!("Failed to run command {}: {:?}", app.cmd, e);
