@@ -185,6 +185,7 @@ impl Session {
 
                 self.outgoing.extend(data);
                 self.incoming_sep_pos = i + 1;
+                self.send_data().await?;
                 break;
             }
         }
