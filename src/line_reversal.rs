@@ -6,7 +6,7 @@ use std::sync::Arc;
 use anyhow::{anyhow, Result};
 use tokio::net::UdpSocket;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 type SessionId = u64;
 
@@ -255,7 +255,7 @@ impl Session {
         }
         let (l, r) = {
             let l = position as usize;
-            let r = cmp::min(l + 1000, self.outgoing.len() as usize);
+            let r = cmp::min(l + 999, self.outgoing.len() as usize);
             (l, r)
         };
         let data = String::from_utf8_lossy(&self.outgoing[l..r]).to_string();
@@ -387,6 +387,11 @@ async fn run_accept_loop(socket: Arc<UdpSocket>, tx: UnboundedSender<Event>) -> 
         let tx = tx.clone();
         info!("Received 1 packet from {}", remote_addr);
         tokio::spawn(async move {
+            if n >= 1000 {
+                warn!("Packet ({}) too large, should be less than 1000", n);
+                return;
+            }
+
             match Message::try_from(String::from_utf8_lossy(&buf[0..n]).to_string()) {
                 Ok(message) => {
                     tx.send(Event::Incoming {
