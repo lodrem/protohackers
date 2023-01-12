@@ -202,14 +202,11 @@ impl Session {
 
     pub async fn recv_ack(&mut self, pos: u64) -> Result<()> {
         self.last_active_at = Instant::now();
-        if pos <= self.outgoing_ack_pos {
+        if pos < self.outgoing_ack_pos {
             // duplicated ack
             Ok(())
-        } else if pos == self.outgoing.len() as u64 {
-            // update ack pos
-            self.outgoing_ack_pos = pos;
-            Ok(())
-        } else if pos < self.outgoing.len() as u64 {
+        }
+        if pos <= self.outgoing.len() as u64 {
             // send payload after pos
             self.outgoing_ack_pos = pos;
             self.send_data().await?;
