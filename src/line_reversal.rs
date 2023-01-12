@@ -177,7 +177,7 @@ impl Session {
 
     pub async fn recv_data(&mut self, pos: u64, buf: &[u8]) -> Result<()> {
         let pos = pos as usize;
-        if self.incoming.len() != pos {
+        if self.incoming_ack_pos() != pos {
             self.send_ack().await?;
             return Ok(());
         }
@@ -247,9 +247,12 @@ impl Session {
         }
     }
 
+    pub fn incoming_ack_pos(&self) -> u64 {
+        (self.incoming.len() + self.incoming_base_idx) as u64
+    }
+
     pub async fn send_ack(&mut self) -> Result<()> {
-        self.send_ack_with_pos((self.incoming.len() + self.incoming_base_idx) as u64)
-            .await
+        self.send_ack_with_pos(self.incoming_ack_pos()).await
     }
 
     pub async fn send_ack_with_pos(&mut self, pos: u64) -> Result<()> {
