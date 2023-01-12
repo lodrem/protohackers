@@ -205,8 +205,7 @@ impl Session {
         if pos < self.outgoing_ack_pos {
             // duplicated ack
             Ok(())
-        }
-        if pos <= self.outgoing.len() as u64 {
+        } else if pos <= self.outgoing.len() as u64 {
             // send payload after pos
             self.outgoing_ack_pos = pos;
             self.send_data().await?;
