@@ -165,13 +165,14 @@ impl ActivityMarker {
     }
 
     pub fn next(&mut self) -> (Vec<Activity>, Vec<Activity>) {
-        let d = Duration::from_secs(3);
+        let resend_d = Duration::from_secs(3);
+        let expiry_d = Duration::from_secs(60);
         let now = Instant::now();
         let mut resend = vec![];
         let mut expiry = vec![];
         let mut inner = self.inner.lock().unwrap();
         while let Some(item) = inner.resend_queue.pop_front() {
-            if now.duration_since(item.0) >= d {
+            if now.duration_since(item.0) >= resend_d {
                 resend.push(item);
             } else {
                 inner.resend_queue.push_front(item);
@@ -179,7 +180,7 @@ impl ActivityMarker {
             }
         }
         while let Some(item) = inner.expiry_queue.pop_front() {
-            if now.duration_since(item.0) >= d {
+            if now.duration_since(item.0) >= expiry_d {
                 expiry.push(item);
             } else {
                 inner.expiry_queue.push_front(item);
