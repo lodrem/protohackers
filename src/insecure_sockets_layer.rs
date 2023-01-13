@@ -55,8 +55,8 @@ impl Ciphers {
     pub fn encode(&mut self, mut v: u8) -> u8 {
         self.0.iter().for_each(|cipher| {
             v = cipher.encode(self.1, v);
-            self.1 += 1;
         });
+        self.1 += 1;
 
         v
     }
@@ -65,8 +65,8 @@ impl Ciphers {
     pub fn decode(&mut self, mut v: u8) -> u8 {
         self.0.iter().rev().for_each(|cipher| {
             v = cipher.decode(self.2, v);
-            self.2 += 1;
         });
+        self.2 += 1;
 
         v
     }
@@ -107,12 +107,12 @@ where
         loop {
             let v = self.reader.read_u8().await?;
             let cipher = match v {
-                CIPHER_END => break,
                 CIPHER_REVERSE_BITS => Cipher::ReverseBits,
                 CIPHER_XOR => Cipher::Xor(self.reader.read_u8().await?),
                 CIPHER_XOR_POS => Cipher::XorPos,
                 CIPHER_ADD => Cipher::Add(self.reader.read_u8().await?),
                 CIPHER_ADD_POS => Cipher::AddPos,
+                CIPHER_END => break,
                 typ => return Err(anyhow!("Invalid cipher type: 0x{:02x}", typ)),
             };
             rv.push(cipher);
@@ -131,13 +131,10 @@ where
     pub async fn recv_line(&mut self) -> Result<String> {
         let mut buf = vec![];
         loop {
-            let v = self.reader.read_u8().await?;
-            let v = self.ciphers.decode(v);
-
+            let v = self.ciphers.decode(self.reader.read_u8().await?);
             if v == b'\n' {
                 break;
             }
-
             buf.push(v);
         }
 
