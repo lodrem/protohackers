@@ -16,13 +16,12 @@ const CIPHER_ADD_POS: u8 = 0x05;
 
 fn reverse_bits(mut v: u8) -> u8 {
     let mut rv = 0;
+    let mut p = 7;
 
-    while v > 0 {
-        if v - ((v >> 1) << 1) > 0 {
-            rv += 1;
-        }
+    while v != 0 {
+        rv += (v & 1) << p;
         v >>= 1;
-        rv <<= 1;
+        p -= 1;
     }
 
     rv
@@ -235,9 +234,19 @@ pub async fn run(addr: SocketAddr) -> Result<()> {
 mod tests {
     #[test]
     fn test_reverse_bits() {
+        use super::reverse_bits;
         assert_eq!((42 + 230) % 256, 16);
         assert_eq!((16 as i32 - 230).rem_euclid(256), 42);
         assert_eq!((42 + 50) % 256, 92);
         assert_eq!((92 as i32 - 50).rem_euclid(256), 42);
+
+        assert_eq!(reverse_bits(0x69), 0x96);
+        assert_eq!(reverse_bits(0x64), 0x26);
+        assert_eq!(reverse_bits(0x6d), 0xb6);
+        assert_eq!(reverse_bits(0x6e), 0x76);
+
+        for i in 0..255 {
+            assert_eq!(i, reverse_bits(reverse_bits(i)));
+        }
     }
 }
