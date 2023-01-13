@@ -6,15 +6,15 @@
 
 ### Solutions
 
-| Problem                     | Run                                                  |
-|:----------------------------|:-----------------------------------------------------|
-| 0: Smoke Test               | `cargo run --release -- -c smoke_test`               |
-| 1: Prime Time               | `cargo run --release -- -c prime_time`               |
-| 2: Means to an End          | `cargo run --release -- -c means_to_an_end`          |
-| 3: Budget Chat              | `cargo run --release -- -c budget_chat`              |
-| 4: Unusual Database Program | `cargo run --release -- -c unusual_database_program` |
-| 5: Mob in the Middle        | `cargo run --release -- -c mob_in_the_middle`        |
-| 6: Speed Daemon             | `cargo run --release -- -c speed_daemon`             |
-| 7: Line Reversal            | `cargo run --release -- -c line_reversal`            |
-| 8: Insecure Sockets Layer   | `cargo run --release -- -c insecure_sockets_layer`   |
-| 9: Job Centre               | `cargo run --release -- -c job_centre`               |
+| Problem                     | Run                                 |
+|:----------------------------|:------------------------------------|
+| 0: Smoke Test               | `just run smoke_test`               |
+| 1: Prime Time               | `just run prime_time`               |
+| 2: Means to an End          | `just run means_to_an_end`          |
+| 3: Budget Chat              | `just run budget_chat`              |
+| 4: Unusual Database Program | `just run unusual_database_program` |
+| 5: Mob in the Middle        | `just run mob_in_the_middle`        |
+| 6: Speed Daemon             | `just run speed_daemon`             |
+| 7: Line Reversal            | `just run line_reversal`            |
+| 8: Insecure Sockets Layer   | `just run insecure_sockets_layer`   |
+| 9: Job Centre               | `just run job_centre`               |
