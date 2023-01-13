@@ -53,24 +53,25 @@ struct Ciphers(Vec<Cipher>, usize, usize);
 impl Ciphers {
     #[inline]
     pub fn encode(&mut self, mut v: u8) -> u8 {
-        for cipher in self.0.iter() {
+        self.0.iter().for_each(|cipher| {
             v = cipher.encode(self.1, v);
             self.1 += 1;
-        }
+        });
 
         v
     }
 
     #[inline]
     pub fn decode(&mut self, mut v: u8) -> u8 {
-        for j in (0..self.0.len()).rev() {
-            v = self.0[j].decode(self.2, v);
+        self.0.iter().rev().for_each(|cipher| {
+            v = cipher.decode(self.2, v);
             self.2 += 1;
-        }
+        });
 
         v
     }
 
+    #[inline]
     pub fn is_noop(&self) -> bool {
         let mut me = Self(self.0.clone(), 0, 0);
         for i in 0..255 {
@@ -104,22 +105,13 @@ where
     pub async fn prepare_ciphers(&mut self) -> Result<()> {
         let mut rv = vec![];
         loop {
-            let v = {
-                // self.read_pos += 1;
-                self.reader.read_u8().await?
-            };
+            let v = self.reader.read_u8().await?;
             let cipher = match v {
                 CIPHER_END => break,
                 CIPHER_REVERSE_BITS => Cipher::ReverseBits,
-                CIPHER_XOR => Cipher::Xor({
-                    // self.read_pos += 1;
-                    self.reader.read_u8().await?
-                }),
+                CIPHER_XOR => Cipher::Xor(self.reader.read_u8().await?),
                 CIPHER_XOR_POS => Cipher::XorPos,
-                CIPHER_ADD => Cipher::Add({
-                    // self.read_pos += 1;
-                    self.reader.read_u8().await?
-                }),
+                CIPHER_ADD => Cipher::Add(self.reader.read_u8().await?),
                 CIPHER_ADD_POS => Cipher::AddPos,
                 typ => return Err(anyhow!("Invalid cipher type: 0x{:02x}", typ)),
             };
@@ -150,13 +142,13 @@ where
         }
 
         let rv = unsafe { String::from_utf8_unchecked(buf) };
-        info!("-> Server: response '{}'", rv);
+        info!("-> Server: request '{}'", rv);
 
         Ok(rv)
     }
 
     pub async fn send_line(&mut self, v: String) -> Result<()> {
-        info!("<- Server: request '{}'", v);
+        info!("<- Server: response '{}'", v);
         let mut buf = v.into_bytes();
         buf.push(b'\n');
 
