@@ -151,6 +151,8 @@ where
     }
 
     pub async fn send_line(&mut self, v: String) -> Result<()> {
+        let p = v.clone();
+
         let mut buf = v.into_bytes();
 
         for i in 0..buf.len() {
@@ -158,6 +160,24 @@ where
             self.write_pos += 1;
         }
         buf.push(b'\n');
+
+        {
+            let before = {
+                let parts: Vec<_> = p
+                    .as_bytes()
+                    .iter()
+                    .map(|b| format!("0x{:02x}", b))
+                    .collect();
+                parts.join(" ")
+            };
+            let after = {
+                let parts: Vec<_> = buf.iter().map(|b| format!("0x{:02x}", b)).collect();
+                parts.join(" ")
+            };
+            info!("<- Server: before '{}' == '{}'", before, p);
+            info!("<- Server: after  '{}'", after);
+        }
+
         self.writer.write_all(&buf).await?;
         Ok(())
     }
