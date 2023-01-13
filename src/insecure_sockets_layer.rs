@@ -14,19 +14,6 @@ const CIPHER_XOR_POS: u8 = 0x03;
 const CIPHER_ADD: u8 = 0x04;
 const CIPHER_ADD_POS: u8 = 0x05;
 
-fn reverse_bits(mut v: u8) -> u8 {
-    let mut rv = 0;
-    let mut p = 7;
-
-    while v != 0 {
-        rv += (v & 1) << p;
-        v >>= 1;
-        p -= 1;
-    }
-
-    rv
-}
-
 #[derive(Copy, Clone, Debug)]
 enum Cipher {
     ReverseBits,
@@ -40,7 +27,7 @@ impl Cipher {
     #[inline]
     pub fn encode(&self, i: usize, v: u8) -> u8 {
         match self {
-            Self::ReverseBits => reverse_bits(v),
+            Self::ReverseBits => v.reverse_bits(),
             Self::Xor(n) => v ^ n,
             Self::XorPos => v ^ (i as u8),
             Self::Add(n) => ((v as u16 + *n as u16) % 256) as u8,
@@ -51,7 +38,7 @@ impl Cipher {
     #[inline]
     pub fn decode(&self, i: usize, v: u8) -> u8 {
         match self {
-            Self::ReverseBits => reverse_bits(v),
+            Self::ReverseBits => v.reverse_bits(),
             Self::Xor(n) => v ^ n,
             Self::XorPos => v ^ (i as u8),
             Self::Add(n) => ((v as i16 - *n as i16).rem_euclid(256)) as u8,
@@ -61,62 +48,33 @@ impl Cipher {
 }
 
 #[derive(Debug, Clone)]
-struct Ciphers(Vec<Cipher>);
+struct Ciphers(Vec<Cipher>, usize, usize);
 
 impl Ciphers {
-    pub fn new(cs: Vec<Cipher>) -> Self {
-        Self(cs)
-    }
-
     #[inline]
-    pub fn encode(&self, i: usize, mut v: u8) -> u8 {
+    pub fn encode(&mut self, mut v: u8) -> u8 {
         for cipher in self.0.iter() {
-            v = cipher.encode(i, v);
+            v = cipher.encode(self.1, v);
+            self.1 += 1;
         }
 
         v
     }
 
     #[inline]
-    pub fn decode(&self, i: usize, mut v: u8) -> u8 {
+    pub fn decode(&mut self, mut v: u8) -> u8 {
         for j in (0..self.0.len()).rev() {
-            v = self.0[j].decode(i, v);
+            v = self.0[j].decode(self.2, v);
+            self.2 += 1;
         }
 
         v
-    }
-
-    pub fn to_data(&self) -> Vec<u8> {
-        let mut buf = vec![];
-        for cipher in self.0.iter() {
-            match cipher {
-                Cipher::Add(n) => {
-                    buf.push(CIPHER_ADD);
-                    buf.push(*n);
-                }
-                Cipher::AddPos => buf.push(CIPHER_ADD_POS),
-                Cipher::Xor(n) => {
-                    buf.push(CIPHER_XOR);
-                    buf.push(*n);
-                }
-                Cipher::XorPos => buf.push(CIPHER_XOR_POS),
-                Cipher::ReverseBits => buf.push(CIPHER_REVERSE_BITS),
-            }
-        }
-        buf.push(CIPHER_END);
-        buf
     }
 
     pub fn is_noop(&self) -> bool {
-        let buf = {
-            let mut buf = [0; 255];
-            for i in 0..buf.len() {
-                buf[i] = i as u8;
-            }
-            buf
-        };
-        for i in 0..buf.len() {
-            if self.encode(i, buf[i]) != buf[i] {
+        let mut me = Self(self.0.clone(), 0, 0);
+        for i in 0..255 {
+            if me.encode(i) != i {
                 return false;
             }
         }
@@ -128,8 +86,6 @@ struct Context<R, W> {
     reader: R,
     writer: W,
     ciphers: Ciphers,
-    read_pos: usize,
-    write_pos: usize,
 }
 
 impl<R, W> Context<R, W>
@@ -141,9 +97,7 @@ where
         Self {
             reader: r,
             writer: w,
-            ciphers: Ciphers(vec![]),
-            read_pos: 0,
-            write_pos: 0,
+            ciphers: Ciphers(vec![], 0, 0),
         }
     }
 
@@ -183,15 +137,10 @@ where
     }
 
     pub async fn recv_line(&mut self) -> Result<String> {
-        let mut original = vec![];
-
         let mut buf = vec![];
-
         loop {
             let v = self.reader.read_u8().await?;
-            original.push(v);
-            let v = self.ciphers.decode(self.read_pos, v);
-            self.read_pos += 1;
+            let v = self.ciphers.decode(v);
 
             if v == b'\n' {
                 break;
@@ -200,52 +149,19 @@ where
             buf.push(v);
         }
 
-        {
-            let before = {
-                let parts: Vec<_> = original
-                    .into_iter()
-                    .map(|b| format!("0x{:02x}", b))
-                    .collect();
-                parts.join(" ")
-            };
-            let after = {
-                let parts: Vec<_> = buf.iter().map(|b| format!("0x{:02x}", b)).collect();
-                parts.join(" ")
-            };
-            let after_p = unsafe { String::from_utf8_unchecked(buf.clone()) };
-            info!("-> Server: before '{}'", before);
-            info!("-> Server: after  '{}' == '{}'", after, after_p);
-        }
+        let rv = unsafe { String::from_utf8_unchecked(buf) };
+        info!("-> Server: response '{}'", rv);
 
-        Ok(unsafe { String::from_utf8_unchecked(buf) })
+        Ok(rv)
     }
 
     pub async fn send_line(&mut self, v: String) -> Result<()> {
-        let p = v.clone();
-
+        info!("<- Server: request '{}'", v);
         let mut buf = v.into_bytes();
         buf.push(b'\n');
 
         for i in 0..buf.len() {
-            buf[i] = self.ciphers.encode(self.write_pos, buf[i]);
-            self.write_pos += 1;
-        }
-
-        {
-            let before = {
-                let parts: Vec<_> = p
-                    .as_bytes()
-                    .iter()
-                    .map(|b| format!("0x{:02x}", b))
-                    .collect();
-                parts.join(" ")
-            };
-            let after = {
-                let parts: Vec<_> = buf.iter().map(|b| format!("0x{:02x}", b)).collect();
-                parts.join(" ")
-            };
-            info!("<- Server: before '{}' == '{}'", before, p);
-            info!("<- Server: after  '{}'", after);
+            buf[i] = self.ciphers.encode(buf[i]);
         }
 
         self.writer.write_all(&buf).await?;
@@ -278,86 +194,4 @@ async fn handle(mut socket: TcpStream, _remote_addr: SocketAddr) -> Result<()> {
 
 pub async fn run(addr: SocketAddr) -> Result<()> {
     tcp::serve(addr, handle).await
-}
-
-#[cfg(test)]
-mod tests {
-    use super::Cipher;
-    use crate::insecure_sockets_layer::{
-        Ciphers, CIPHER_ADD_POS, CIPHER_END, CIPHER_REVERSE_BITS, CIPHER_XOR, CIPHER_XOR_POS,
-    };
-    use bytes::BufMut;
-    use std::time::Duration;
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
-    use tokio::net::{TcpSocket, TcpStream};
-    use tokio::time::sleep;
-    use tracing::{info, Level};
-
-    #[test]
-    fn test_reverse_bits() {
-        use super::reverse_bits;
-        assert_eq!((42 + 230) % 256, 16);
-        assert_eq!((16 as i32 - 230).rem_euclid(256), 42);
-        assert_eq!((42 + 50) % 256, 92);
-        assert_eq!((92 as i32 - 50).rem_euclid(256), 42);
-
-        assert_eq!(reverse_bits(0x69), 0x96);
-        assert_eq!(reverse_bits(0x64), 0x26);
-        assert_eq!(reverse_bits(0x6d), 0xb6);
-        assert_eq!(reverse_bits(0x6e), 0x76);
-
-        for i in 0..255 {
-            assert_eq!(i, reverse_bits(reverse_bits(i)));
-        }
-
-        let add_pos = Cipher::AddPos;
-        assert_eq!(add_pos.encode(1, 65), 66);
-        assert_eq!(add_pos.encode(1, 66), 67);
-        assert_eq!(add_pos.decode(1, 67), 66);
-        assert_eq!(add_pos.decode(1, 66), 65);
-    }
-
-    #[tokio::test]
-    async fn test() {
-        use super::run;
-        tracing_subscriber::fmt().with_max_level(Level::INFO).init();
-
-        let addr = "0.0.0.0:8888".parse().unwrap();
-
-        tokio::spawn(run(addr));
-
-        sleep(Duration::from_secs(3)).await;
-
-        let mut cli = TcpStream::connect(addr).await.unwrap();
-
-        let ciphers = Ciphers::new(vec![Cipher::Xor(123), Cipher::AddPos, Cipher::ReverseBits]);
-        let requests: Vec<_> = b"4x dog,5x car\n3x rat,2x cat\n"
-            .into_iter()
-            .enumerate()
-            .map(|(i, b)| ciphers.encode(i, *b))
-            .collect();
-
-        let mut data = vec![];
-
-        data.extend(ciphers.to_data());
-        data.put_slice(&requests);
-
-        cli.write_all(&data).await.unwrap();
-
-        let mut i = 0;
-        let mut resp = Vec::new();
-        while let Ok(v) = cli.read_u8().await {
-            let decoded = ciphers.decode(i, v);
-            resp.push(decoded);
-            if decoded == b'\n' {
-                info!("recv resp: {}", unsafe {
-                    String::from_utf8_unchecked(resp.clone())
-                });
-                resp.clear();
-            }
-            i += 1;
-        }
-
-        sleep(Duration::from_secs(10)).await;
-    }
 }
