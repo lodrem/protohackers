@@ -60,10 +60,74 @@ impl Cipher {
     }
 }
 
+#[derive(Debug, Clone)]
+struct Ciphers(Vec<Cipher>);
+
+impl Ciphers {
+    pub fn new(cs: Vec<Cipher>) -> Self {
+        Self(cs)
+    }
+
+    #[inline]
+    pub fn encode(&self, i: usize, mut v: u8) -> u8 {
+        for cipher in self.0.iter() {
+            v = cipher.encode(i, v);
+        }
+
+        v
+    }
+
+    #[inline]
+    pub fn decode(&self, i: usize, mut v: u8) -> u8 {
+        for j in (0..self.0.len()).rev() {
+            v = self.0[j].decode(i, v);
+        }
+
+        v
+    }
+
+    pub fn to_data(&self) -> Vec<u8> {
+        let mut buf = vec![];
+        for cipher in self.0.iter() {
+            match cipher {
+                Cipher::Add(n) => {
+                    buf.push(CIPHER_ADD);
+                    buf.push(*n);
+                }
+                Cipher::AddPos => buf.push(CIPHER_ADD_POS),
+                Cipher::Xor(n) => {
+                    buf.push(CIPHER_XOR);
+                    buf.push(*n);
+                }
+                Cipher::XorPos => buf.push(CIPHER_XOR_POS),
+                Cipher::ReverseBits => buf.push(CIPHER_REVERSE_BITS),
+            }
+        }
+        buf.push(CIPHER_END);
+        buf
+    }
+
+    pub fn is_noop(&self) -> bool {
+        let buf = {
+            let mut buf = [0; 255];
+            for i in 0..buf.len() {
+                buf[i] = i as u8;
+            }
+            buf
+        };
+        for i in 0..buf.len() {
+            if self.encode(i, buf[i]) != buf[i] {
+                return false;
+            }
+        }
+        true
+    }
+}
+
 struct Context<R, W> {
     reader: R,
     writer: W,
-    ciphers: Vec<Cipher>,
+    ciphers: Ciphers,
     read_pos: usize,
     write_pos: usize,
 }
@@ -77,7 +141,7 @@ where
         Self {
             reader: r,
             writer: w,
-            ciphers: vec![],
+            ciphers: Ciphers(vec![]),
             read_pos: 0,
             write_pos: 0,
         }
@@ -87,19 +151,19 @@ where
         let mut rv = vec![];
         loop {
             let v = {
-                self.read_pos += 1;
+                // self.read_pos += 1;
                 self.reader.read_u8().await?
             };
             let cipher = match v {
                 CIPHER_END => break,
                 CIPHER_REVERSE_BITS => Cipher::ReverseBits,
                 CIPHER_XOR => Cipher::Xor({
-                    self.read_pos += 1;
+                    // self.read_pos += 1;
                     self.reader.read_u8().await?
                 }),
                 CIPHER_XOR_POS => Cipher::XorPos,
                 CIPHER_ADD => Cipher::Add({
-                    self.read_pos += 1;
+                    // self.read_pos += 1;
                     self.reader.read_u8().await?
                 }),
                 CIPHER_ADD_POS => Cipher::AddPos,
@@ -107,11 +171,15 @@ where
             };
             rv.push(cipher);
         }
-        self.ciphers = rv;
+        self.ciphers.0 = rv;
 
         info!("-> Server: ciphers {:?}", self.ciphers);
 
-        Ok(())
+        if self.ciphers.is_noop() {
+            Err(anyhow!("Ciphers {:?} is noop, disconnected", self.ciphers))
+        } else {
+            Ok(())
+        }
     }
 
     pub async fn recv_line(&mut self) -> Result<String> {
@@ -122,9 +190,7 @@ where
         loop {
             let v = self.reader.read_u8().await?;
             original.push(v);
-            info!("<- Server: encoded byte 0x{:02x}", v);
-            let v = self.decode(self.read_pos, v);
-            info!("<- Server: decoded byte 0x{:02x}", v);
+            let v = self.ciphers.decode(self.read_pos, v);
             self.read_pos += 1;
 
             if v == b'\n' {
@@ -161,7 +227,7 @@ where
         buf.push(b'\n');
 
         for i in 0..buf.len() {
-            buf[i] = self.encode(self.write_pos, buf[i]);
+            buf[i] = self.ciphers.encode(self.write_pos, buf[i]);
             self.write_pos += 1;
         }
 
@@ -184,24 +250,6 @@ where
 
         self.writer.write_all(&buf).await?;
         Ok(())
-    }
-
-    #[inline]
-    fn encode(&mut self, i: usize, mut v: u8) -> u8 {
-        for cipher in self.ciphers.iter() {
-            v = cipher.encode(i, v);
-        }
-
-        v
-    }
-
-    #[inline]
-    fn decode(&mut self, i: usize, mut v: u8) -> u8 {
-        for j in (0..self.ciphers.len()).rev() {
-            v = self.ciphers[j].decode(i, v);
-        }
-
-        v
     }
 }
 
@@ -236,7 +284,7 @@ pub async fn run(addr: SocketAddr) -> Result<()> {
 mod tests {
     use super::Cipher;
     use crate::insecure_sockets_layer::{
-        CIPHER_ADD_POS, CIPHER_END, CIPHER_REVERSE_BITS, CIPHER_XOR,
+        Ciphers, CIPHER_ADD_POS, CIPHER_END, CIPHER_REVERSE_BITS, CIPHER_XOR, CIPHER_XOR_POS,
     };
     use bytes::BufMut;
     use std::time::Duration;
@@ -282,27 +330,32 @@ mod tests {
 
         let mut cli = TcpStream::connect(addr).await.unwrap();
 
-        let mut data = vec![
-            CIPHER_XOR,
-            123_u8,
-            CIPHER_ADD_POS,
-            CIPHER_REVERSE_BITS,
-            CIPHER_END,
-        ];
-
-        let buf: Vec<_> = b"4x dog,5x car\n3x rat,2x cat\n"
+        let ciphers = Ciphers::new(vec![Cipher::Xor(123), Cipher::AddPos, Cipher::ReverseBits]);
+        let requests: Vec<_> = b"4x dog,5x car\n3x rat,2x cat\n"
             .into_iter()
             .enumerate()
-            .map(|(i, b)| (i, Cipher::Xor(123).encode(i + 5, *b)))
-            .map(|(i, b)| (i, Cipher::AddPos.encode(i + 5, b)))
-            .map(|(i, b)| Cipher::ReverseBits.encode(i + 5, b))
+            .map(|(i, b)| ciphers.encode(i, *b))
             .collect();
-        data.put_slice(&buf);
+
+        let mut data = vec![];
+
+        data.extend(ciphers.to_data());
+        data.put_slice(&requests);
 
         cli.write_all(&data).await.unwrap();
 
+        let mut i = 0;
+        let mut resp = Vec::new();
         while let Ok(v) = cli.read_u8().await {
-            info!("recv 0x{:02x}", v);
+            let decoded = ciphers.decode(i, v);
+            resp.push(decoded);
+            if decoded == b'\n' {
+                info!("recv resp: {}", unsafe {
+                    String::from_utf8_unchecked(resp.clone())
+                });
+                resp.clear();
+            }
+            i += 1;
         }
 
         sleep(Duration::from_secs(10)).await;
