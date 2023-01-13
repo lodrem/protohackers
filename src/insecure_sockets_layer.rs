@@ -28,7 +28,7 @@ fn reverse_bits(mut v: u8) -> u8 {
     rv
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 enum Cipher {
     ReverseBits,
     Xor(u8),
@@ -109,6 +109,9 @@ where
             rv.push(cipher);
         }
         self.ciphers = rv;
+
+        info!("-> Server: ciphers {:?}", self.ciphers);
+
         Ok(())
     }
 
