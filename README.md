@@ -16,4 +16,5 @@
 | 5: Mob in the Middle        | `cargo run --release -- -c mob_in_the_middle`        |
 | 6: Speed Daemon             | `cargo run --release -- -c speed_daemon`             |
 | 7: Line Reversal            | `cargo run --release -- -c line_reversal`            |
+| 8: Insecure Sockets Layer   | `cargo run --release -- -c insecure_sockets_layer`   |
 | 9: Job Centre               | `cargo run --release -- -c job_centre`               |
