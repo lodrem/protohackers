@@ -1,5 +1,7 @@
 # Protohackers solutions in Rust
 
+Solutions for [Server programming challenge](https://protohackers.com/) in Rust.
+
 ### Arguments
 - `--addr`: the listening address, default: `0.0.0.0:8070`
 - `-c`: the command to run
