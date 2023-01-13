@@ -3,6 +3,7 @@ use std::net::SocketAddr;
 use anyhow::{anyhow, Result};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::TcpStream;
+use tracing::info;
 
 use crate::tcp;
 
@@ -112,10 +113,13 @@ where
     }
 
     pub async fn recv_line(&mut self) -> Result<String> {
+        let mut original = vec![];
+
         let mut buf = vec![];
 
         loop {
             let v = self.reader.read_u8().await?;
+            original.push(v);
             let v = self.decode(self.read_pos, v);
             self.read_pos += 1;
 
@@ -124,6 +128,23 @@ where
             }
 
             buf.push(v);
+        }
+
+        {
+            let before = {
+                let parts: Vec<_> = original
+                    .into_iter()
+                    .map(|b| format!("0x{:02x}", b))
+                    .collect();
+                parts.join(" ")
+            };
+            let after = {
+                let parts: Vec<_> = buf.iter().map(|b| format!("0x{:02x}", b)).collect();
+                parts.join(" ")
+            };
+            let after_p = unsafe { String::from_utf8_unchecked(buf.clone()) };
+            info!("-> Server: before '{}'", before);
+            info!("-> Server: after  '{}' == '{}'", after, after_p);
         }
 
         Ok(unsafe { String::from_utf8_unchecked(buf) })
