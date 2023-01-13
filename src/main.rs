@@ -2,6 +2,7 @@ mod signal;
 mod tcp;
 
 mod budget_chat;
+mod insecure_sockets_layer;
 mod job_centre;
 mod line_reversal;
 mod means_to_an_end;
@@ -45,10 +46,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 "means_to_an_end" => means_to_an_end::run(addr).await,
                 "budget_chat" => budget_chat::run(addr).await,
                 "unusual_database_program" => unusual_database_program::run(addr).await,
-                "job_centre" => job_centre::run(addr).await,
                 "mob_in_the_middle" => mob_in_the_middle::run(addr).await,
                 "speed_daemon" => speed_daemon::run(addr).await,
                 "line_reversal" => line_reversal::run(addr).await,
+                "insecure_sockets_layer" => insecure_sockets_layer::run(addr).await,
+                "job_centre" => job_centre::run(addr).await,
                 c => Err(anyhow!("Invalid command: {}", c)),
             } {
                 error!("Failed to run command {}: {:?}", app.cmd, e);
