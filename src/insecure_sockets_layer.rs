@@ -122,7 +122,9 @@ where
         loop {
             let v = self.reader.read_u8().await?;
             original.push(v);
+            info!("<- Server: encoded byte 0x{:02x}", v);
             let v = self.decode(self.read_pos, v);
+            info!("<- Server: decoded byte 0x{:02x}", v);
             self.read_pos += 1;
 
             if v == b'\n' {
@@ -232,6 +234,17 @@ pub async fn run(addr: SocketAddr) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
+    use super::Cipher;
+    use crate::insecure_sockets_layer::{
+        CIPHER_ADD_POS, CIPHER_END, CIPHER_REVERSE_BITS, CIPHER_XOR,
+    };
+    use bytes::BufMut;
+    use std::time::Duration;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::{TcpSocket, TcpStream};
+    use tokio::time::sleep;
+    use tracing::{info, Level};
+
     #[test]
     fn test_reverse_bits() {
         use super::reverse_bits;
@@ -248,5 +261,50 @@ mod tests {
         for i in 0..255 {
             assert_eq!(i, reverse_bits(reverse_bits(i)));
         }
+
+        let add_pos = Cipher::AddPos;
+        assert_eq!(add_pos.encode(1, 65), 66);
+        assert_eq!(add_pos.encode(1, 66), 67);
+        assert_eq!(add_pos.decode(1, 67), 66);
+        assert_eq!(add_pos.decode(1, 66), 65);
+    }
+
+    #[tokio::test]
+    async fn test() {
+        use super::run;
+        tracing_subscriber::fmt().with_max_level(Level::INFO).init();
+
+        let addr = "0.0.0.0:8888".parse().unwrap();
+
+        tokio::spawn(run(addr));
+
+        sleep(Duration::from_secs(3)).await;
+
+        let mut cli = TcpStream::connect(addr).await.unwrap();
+
+        let mut data = vec![
+            CIPHER_XOR,
+            123_u8,
+            CIPHER_ADD_POS,
+            CIPHER_REVERSE_BITS,
+            CIPHER_END,
+        ];
+
+        let buf: Vec<_> = b"4x dog,5x car\n3x rat,2x cat\n"
+            .into_iter()
+            .enumerate()
+            .map(|(i, b)| (i, Cipher::Xor(123).encode(i + 5, *b)))
+            .map(|(i, b)| (i, Cipher::AddPos.encode(i + 5, b)))
+            .map(|(i, b)| Cipher::ReverseBits.encode(i + 5, b))
+            .collect();
+        data.put_slice(&buf);
+
+        cli.write_all(&data).await.unwrap();
+
+        while let Ok(v) = cli.read_u8().await {
+            info!("recv 0x{:02x}", v);
+        }
+
+        sleep(Duration::from_secs(10)).await;
     }
 }
