@@ -154,12 +154,12 @@ where
         let p = v.clone();
 
         let mut buf = v.into_bytes();
+        buf.push(b'\n');
 
         for i in 0..buf.len() {
             buf[i] = self.encode(self.write_pos, buf[i]);
             self.write_pos += 1;
         }
-        buf.push(b'\n');
 
         {
             let before = {
