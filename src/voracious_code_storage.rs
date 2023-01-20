@@ -461,7 +461,6 @@ async fn handle(mut socket: TcpStream, _remote_addr: SocketAddr, mut state: Stat
 }
 
 pub async fn run(addr: SocketAddr) -> Result<()> {
-    // test_upstream().await?;
     let listener = TcpListener::bind(addr).await?;
     info!("TCP Server listening on {}", addr);
 
