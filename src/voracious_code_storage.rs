@@ -264,7 +264,7 @@ where
                 buf.pop();
                 info!("-> Server: '{}'", buf);
                 let parts: Vec<_> = buf.split(' ').collect();
-                match parts[0] {
+                match parts[0].to_uppercase().as_str() {
                     "PUT" => {
                         let content_len = parts[2].parse::<usize>()?;
                         let mut content = vec![0; content_len];
@@ -359,14 +359,7 @@ async fn handle(mut socket: TcpStream, remote_addr: SocketAddr, mut state: State
     loop {
         match ctx.incoming().await? {
             Request::PutFile { path, content } => {
-                info!(
-                    "{} -> Server: PUT {} with content '{}'",
-                    remote_addr,
-                    path,
-                    unsafe {
-                        String::from_utf8_unchecked(content.clone().to_vec()).replace('\n', "<NL>")
-                    }
-                );
+                info!("{} -> Server: PUT {}", remote_addr, path);
                 let revision = state.put(path, content);
                 info!("{} <- Server: OK with revision {}", remote_addr, revision);
                 ctx.outgoing(Response::FileRevision(revision)).await?;
@@ -375,10 +368,7 @@ async fn handle(mut socket: TcpStream, remote_addr: SocketAddr, mut state: State
                 info!("{} -> Server: GET {}", remote_addr, path);
                 let resp = match state.get(path, revision) {
                     Some(content) => {
-                        info!("{} <- Server: OK with content '{}'", remote_addr, unsafe {
-                            String::from_utf8_unchecked(content.clone().to_vec())
-                                .replace('\n', "<NL>")
-                        });
+                        info!("{} <- Server: OK", remote_addr);
                         Response::FileContent(content)
                     }
                     None => {
