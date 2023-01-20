@@ -9,6 +9,20 @@ use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::net::{TcpListener, TcpStream};
 use tracing::{error, info};
 
+enum INodeInfo {
+    File { filename: String, revision: u64 },
+    Directory { filename: String },
+}
+
+impl Into<Bytes> for INodeInfo {
+    fn into(self) -> Bytes {
+        match self {
+            Self::File { filename, revision } => Bytes::from(format!("{} r{}", filename, revision)),
+            Self::Directory { filename } => Bytes::from(format!("{} DIR", filename)),
+        }
+    }
+}
+
 struct INode {
     content: Bytes,
     revision: u64,
@@ -50,26 +64,36 @@ impl INode {
     }
 
     #[inline]
-    pub fn list_dir(&self, path: String) -> Vec<String> {
+    pub fn list_dir(&self, path: String) -> Vec<INodeInfo> {
         let dirs = Self::split_path(path);
         match self.cd_dir(dirs) {
-            Ok(d) => d
-                .children
-                .iter()
-                .map(|(filename, inode)| {
-                    format!(
-                        "{} {}",
-                        filename,
+            Ok(d) => {
+                let mut rv: Vec<_> = d
+                    .children
+                    .iter()
+                    .map(|(filename, inode)| {
                         if inode.children.is_empty() {
-                            format!("r{}", inode.revision)
+                            INodeInfo::File {
+                                filename: filename.clone(),
+                                revision: inode.revision,
+                            }
                         } else {
-                            "DIR".to_string()
+                            INodeInfo::Directory {
+                                filename: filename.clone(),
+                            }
                         }
-                    )
-                })
-                .collect(),
-            Err(e) => {
-                vec![format!("{:?}", e)]
+                    })
+                    .collect();
+
+                rv.sort_by_key(|f| match f {
+                    INodeInfo::File { filename, .. } => filename.clone(),
+                    INodeInfo::Directory { filename } => filename.clone(),
+                });
+
+                rv
+            }
+            Err(_) => {
+                vec![]
             }
         }
     }
@@ -137,7 +161,7 @@ impl State {
         root.get_file(path)
     }
 
-    pub fn list(&mut self, path: String) -> Vec<String> {
+    pub fn list(&mut self, path: String) -> Vec<INodeInfo> {
         let root = self.inode.read().unwrap();
         root.list_dir(path)
     }
@@ -166,7 +190,7 @@ enum Response {
     Ready,
     FileContent(Bytes),
     FileRevision(u64),
-    Files(Vec<String>),
+    Files(Vec<INodeInfo>),
     Err(Error),
 }
 
@@ -188,7 +212,7 @@ impl Into<Bytes> for Response {
             Self::Files(files) => {
                 let mut buf = BytesMut::from(format!("OK {}\n", files.len()).as_bytes());
                 for f in files {
-                    buf.put_slice(f.as_bytes());
+                    buf.put::<Bytes>(f.into());
                     buf.put_u8(b'\n');
                 }
                 buf.put(&b"READY\n"[..]);
@@ -361,7 +385,73 @@ async fn handle(mut socket: TcpStream, remote_addr: SocketAddr, mut state: State
     Ok(())
 }
 
+async fn test_upstream() -> Result<()> {
+    let mut upstream = Upstream::connect().await?;
+
+    {
+        let mut buf = String::new();
+        upstream.reader.read_line(&mut buf).await?;
+        info!("Greet from upstream: '{}'", buf);
+    }
+
+    upstream
+        .send(Request::PutFile {
+            path: "/foo.txt".to_string(),
+            content: Bytes::from_static(b"Hello, world"),
+        })
+        .await?;
+
+    upstream
+        .send(Request::PutFile {
+            path: "/bar.txt".to_string(),
+            content: Bytes::from_static(b"damn you"),
+        })
+        .await?;
+
+    upstream
+        .send(Request::PutFile {
+            path: "/ccc/bar.txt".to_string(),
+            content: Bytes::from_static(b"damn you"),
+        })
+        .await?;
+
+    upstream
+        .send(Request::PutFile {
+            path: "/z/bar.txt".to_string(),
+            content: Bytes::from_static(b"damn you"),
+        })
+        .await?;
+
+    upstream
+        .send(Request::PutFile {
+            path: "/z".to_string(),
+            content: Bytes::from_static(b"damn you"),
+        })
+        .await?;
+
+    upstream
+        .send(Request::PutFile {
+            path: "/x/bar.txt".to_string(),
+            content: Bytes::from_static(b"damn you"),
+        })
+        .await?;
+
+    info!("Listing directory");
+
+    upstream.writer.write_all(b"LIST /\n").await?;
+    upstream.writer.write_all(b"LIST /x/ba\n").await?;
+    upstream.writer.write_all(b"GET /z/bar.txt\n").await?;
+
+    loop {
+        let mut buf = String::new();
+        upstream.reader.read_line(&mut buf).await?;
+        info!("Received from upstream: '{}'", buf);
+    }
+    Ok(())
+}
+
 pub async fn run(addr: SocketAddr) -> Result<()> {
+    // test_upstream().await
     let listener = TcpListener::bind(addr).await?;
     info!("TCP Server listening on {}", addr);
 
@@ -381,71 +471,6 @@ pub async fn run(addr: SocketAddr) -> Result<()> {
             }
         }
     }
-
-    // {
-    //     let mut upstream = Upstream::connect().await?;
-    //
-    //     {
-    //         let mut buf = String::new();
-    //         upstream.reader.read_line(&mut buf).await?;
-    //         info!("Greet from upstream: '{}'", buf);
-    //     }
-    //
-    //     upstream
-    //         .send(Request::PutFile {
-    //             path: "/foo.txt".to_string(),
-    //             content: Bytes::from_static(b"Hello, world"),
-    //         })
-    //         .await?;
-    //
-    //     upstream
-    //         .send(Request::PutFile {
-    //             path: "/bar.txt".to_string(),
-    //             content: Bytes::from_static(b"damn you"),
-    //         })
-    //         .await?;
-    //
-    //     upstream
-    //         .send(Request::PutFile {
-    //             path: "/ccc/bar.txt".to_string(),
-    //             content: Bytes::from_static(b"damn you"),
-    //         })
-    //         .await?;
-    //
-    //     upstream
-    //         .send(Request::PutFile {
-    //             path: "/z/bar.txt".to_string(),
-    //             content: Bytes::from_static(b"damn you"),
-    //         })
-    //         .await?;
-    //
-    //     upstream
-    //         .send(Request::PutFile {
-    //             path: "/z".to_string(),
-    //             content: Bytes::from_static(b"damn you"),
-    //         })
-    //         .await?;
-    //
-    //     upstream
-    //         .send(Request::PutFile {
-    //             path: "/x/bar.txt".to_string(),
-    //             content: Bytes::from_static(b"damn you"),
-    //         })
-    //         .await?;
-    //
-    //     info!("Listing directory");
-    //
-    //     upstream.writer.write_all(b"LIST /\n").await?;
-    //     upstream.writer.write_all(b"LIST /x/ba\n").await?;
-    //     upstream.writer.write_all(b"GET /z/bar.txt\n").await?;
-    //
-    //     loop {
-    //         let mut buf = String::new();
-    //         upstream.reader.read_line(&mut buf).await?;
-    //         info!("Received from upstream: '{}'", buf);
-    //     }
-    //     Ok(())
-    // }
 }
 
 #[cfg(test)]
