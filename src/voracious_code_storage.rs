@@ -199,12 +199,14 @@ enum Request {
 #[derive(Debug)]
 enum Error {
     FileNotFound,
+    IllegalPath,
 }
 
 impl Into<Bytes> for Error {
     fn into(self) -> Bytes {
         match self {
             Self::FileNotFound => Bytes::from_static(b"no such file"),
+            Self::IllegalPath => Bytes::from_static(b"illegal file name"),
         }
     }
 }
@@ -356,14 +358,17 @@ impl Upstream {
             } => {
                 let mut data = format!("PUT {} {}\n", filename, content.len()).into_bytes();
                 data.extend(content);
-                info!("Sending {} to Upstream", unsafe {
-                    String::from_utf8_unchecked(data.clone())
+                info!("-> Upstream: {}", unsafe {
+                    String::from_utf8_unchecked(data.clone()).replace('\n', "<NL>")
                 });
                 self.writer.write_all(&data).await?;
 
                 let mut resp = String::new();
                 self.reader.read_line(&mut resp).await?;
-                info!("Received {} from Upstream", resp);
+                info!("<- Upstream: {}", resp);
+                let mut resp = String::new();
+                self.reader.read_line(&mut resp).await?;
+                info!("<- Upstream: {}", resp);
                 Response::Ready
             }
             _ => Response::Ready,
@@ -372,7 +377,16 @@ impl Upstream {
     }
 }
 
-async fn handle(mut socket: TcpStream, remote_addr: SocketAddr, mut state: State) -> Result<()> {
+#[inline]
+pub fn is_valid_path(path: &str) -> bool {
+    if path.contains("//") {
+        false
+    } else {
+        path.chars().all(|c| c == '.' || char::is_alphanumeric(c))
+    }
+}
+
+async fn handle(mut socket: TcpStream, _remote_addr: SocketAddr, mut state: State) -> Result<()> {
     let mut ctx = {
         let (rh, wh) = socket.split();
         let rh = BufReader::new(rh);
@@ -385,29 +399,31 @@ async fn handle(mut socket: TcpStream, remote_addr: SocketAddr, mut state: State
     loop {
         match ctx.incoming().await? {
             Request::PutFile { path, content } => {
-                info!("{} -> Server: PUT {}", remote_addr, path);
-                let revision = state.put(path, content);
-                info!("{} <- Server: OK with revision {}", remote_addr, revision);
-                ctx.outgoing(Response::FileRevision(revision)).await?;
+                if !is_valid_path(&path) {
+                    ctx.outgoing(Response::Err(Error::IllegalPath)).await?;
+                } else {
+                    let revision = state.put(path, content);
+                    ctx.outgoing(Response::FileRevision(revision)).await?;
+                }
             }
             Request::GetFile { path, revision } => {
-                info!("{} -> Server: GET {}", remote_addr, path);
-                let resp = match state.get(path, revision) {
-                    Some(content) => {
-                        info!("{} <- Server: OK", remote_addr);
-                        Response::FileContent(content)
-                    }
-                    None => {
-                        info!("{} <- Server: Error because file not found", remote_addr);
-                        Response::Err(Error::FileNotFound)
-                    }
-                };
+                if !is_valid_path(&path) {
+                    ctx.outgoing(Response::Err(Error::IllegalPath)).await?;
+                } else {
+                    let resp = match state.get(path, revision) {
+                        Some(content) => Response::FileContent(content),
+                        None => Response::Err(Error::FileNotFound),
+                    };
 
-                ctx.outgoing(resp).await?;
+                    ctx.outgoing(resp).await?;
+                }
             }
             Request::ListDir { path } => {
-                info!("{} -> Server: LIST {}", remote_addr, path);
-                ctx.outgoing(Response::Files(state.list(path))).await?;
+                if !is_valid_path(&path) {
+                    ctx.outgoing(Response::Err(Error::IllegalPath)).await?;
+                } else {
+                    ctx.outgoing(Response::Files(state.list(path))).await?;
+                }
             }
             Request::Closed => {
                 info!("Closing the connection");
@@ -428,64 +444,29 @@ async fn test_upstream() -> Result<()> {
         info!("Greet from upstream: '{}'", buf);
     }
 
-    upstream
-        .send(Request::PutFile {
-            path: "/foo.txt".to_string(),
-            content: Bytes::from_static(b"Hello, world"),
-        })
-        .await?;
+    // illegal
+    // /B2u@^+K
+    // //znY}Nr
 
-    upstream
-        .send(Request::PutFile {
-            path: "/bar.txt".to_string(),
-            content: Bytes::from_static(b"damn you"),
-        })
-        .await?;
+    // ok
+    // /.L1A9SLX_anHfXlhh2/kdxBzr9zlJGSjlRCncrX4.lVgX2M4tZVSiG
+    let v = Bytes::from("Hello, world");
+    let filenames = ["/foo..bar"];
 
-    upstream
-        .send(Request::PutFile {
-            path: "/ccc/bar.txt".to_string(),
-            content: Bytes::from_static(b"damn you"),
-        })
-        .await?;
-
-    upstream
-        .send(Request::PutFile {
-            path: "/z/bar.txt".to_string(),
-            content: Bytes::from_static(b"damn you"),
-        })
-        .await?;
-
-    upstream
-        .send(Request::PutFile {
-            path: "/z".to_string(),
-            content: Bytes::from_static(b"damn you"),
-        })
-        .await?;
-
-    upstream
-        .send(Request::PutFile {
-            path: "/x/bar.txt".to_string(),
-            content: Bytes::from_static(b"damn you"),
-        })
-        .await?;
-
-    info!("Listing directory");
-
-    upstream.writer.write_all(b"LIST /\n").await?;
-    upstream.writer.write_all(b"LIST /x/ba\n").await?;
-    upstream.writer.write_all(b"GET /z/bar.txt\n").await?;
-
-    loop {
-        let mut buf = String::new();
-        upstream.reader.read_line(&mut buf).await?;
-        info!("Received from upstream: '{}'", buf);
+    for filename in filenames {
+        upstream
+            .send(Request::PutFile {
+                path: filename.to_string(),
+                content: v.clone(),
+            })
+            .await?;
     }
-    Ok(())
+
+    bail!("foobar");
 }
 
 pub async fn run(addr: SocketAddr) -> Result<()> {
-    // test_upstream().await?;
+    test_upstream().await?;
     let listener = TcpListener::bind(addr).await?;
     info!("TCP Server listening on {}", addr);
 
