@@ -519,7 +519,7 @@ async fn test_upstream() -> Result<()> {
 }
 
 pub async fn run(addr: SocketAddr) -> Result<()> {
-    test_upstream().await?;
+    // test_upstream().await?;
     let listener = TcpListener::bind(addr).await?;
     info!("TCP Server listening on {}", addr);
 
