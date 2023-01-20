@@ -193,7 +193,7 @@ enum Request {
     PutFile { path: String, content: Bytes },
     GetFile { path: String, revision: Option<u64> },
     ListDir { path: String },
-    Unsupported { command: String },
+    Noop,
     Closed,
 }
 
@@ -203,6 +203,9 @@ enum Error {
     IllegalPath,
     IllegalFileContent,
     InvalidCommand(String),
+    PutUsage,
+    GetUsage,
+    ListUsage,
 }
 
 impl Into<Bytes> for Error {
@@ -212,6 +215,9 @@ impl Into<Bytes> for Error {
             Self::IllegalPath => Bytes::from_static(b"illegal file name"),
             Self::IllegalFileContent => Bytes::from_static(b"text files only"),
             Self::InvalidCommand(cmd) => Bytes::from(format!("illegal method: {}", cmd)),
+            Self::PutUsage => Bytes::from_static(b"usage: PUT file size"),
+            Self::GetUsage => Bytes::from_static(b"usage: GET file [revision]"),
+            Self::ListUsage => Bytes::from_static(b"usage: LIST dir"),
         }
     }
 }
@@ -300,32 +306,14 @@ where
                 info!("-> Server: '{}'", buf);
                 let parts: Vec<_> = buf.split(' ').collect();
                 match parts[0].to_uppercase().as_str() {
-                    "PUT" => {
-                        let content_len = parts[2].parse::<usize>()?;
-                        let mut content = vec![0; content_len];
-                        self.reader.read_exact(&mut content).await?;
-                        Request::PutFile {
-                            path: parts[1].to_string(),
-                            content: Bytes::from(content),
-                        }
+                    "PUT" => self.parse_put_command(parts).await?,
+                    "GET" => self.parse_get_command(parts).await?,
+                    "LIST" => self.parse_list_command(parts).await?,
+                    typ => {
+                        self.outgoing(Response::Err(Error::InvalidCommand(typ.to_string())))
+                            .await?;
+                        Request::Noop
                     }
-                    "GET" => {
-                        let revision = if parts.len() == 3 {
-                            Some(parts[2].trim_start_matches('r').parse::<u64>()?)
-                        } else {
-                            None
-                        };
-                        Request::GetFile {
-                            path: parts[1].to_string(),
-                            revision,
-                        }
-                    }
-                    "LIST" => Request::ListDir {
-                        path: parts[1].to_string(),
-                    },
-                    typ => Request::Unsupported {
-                        command: typ.to_string(),
-                    },
                 }
             }
         };
@@ -337,6 +325,77 @@ where
         let data: Bytes = response.into();
         self.writer.write_all(&data).await?;
         Ok(())
+    }
+
+    async fn parse_get_command(&mut self, parts: Vec<&str>) -> Result<Request> {
+        if 2 <= parts.len() && parts.len() <= 3 {
+            let path = parts[1].to_string();
+            if !is_valid_path(&path) {
+                self.outgoing(Response::Err(Error::IllegalPath)).await?;
+                return Ok(Request::Noop);
+            }
+            if parts.len() == 3 {
+                if let Ok(revision) = &parts[2][1..].parse::<u64>() {
+                    return Ok(Request::GetFile {
+                        path,
+                        revision: Some(*revision),
+                    });
+                }
+            } else {
+                return Ok(Request::GetFile {
+                    path,
+                    revision: None,
+                });
+            }
+        }
+
+        self.outgoing(Response::Err(Error::GetUsage)).await?;
+        Ok(Request::Noop)
+    }
+
+    async fn parse_put_command(&mut self, parts: Vec<&str>) -> Result<Request> {
+        if parts.len() == 3 {
+            let path = parts[1].to_string();
+
+            if let Ok(content_len) = parts[2].parse::<usize>() {
+                let content = {
+                    let mut buf = vec![0; content_len];
+                    self.reader.read_exact(&mut buf).await?;
+                    Bytes::from(buf)
+                };
+
+                if !is_valid_path(&path) {
+                    self.outgoing(Response::Err(Error::IllegalPath)).await?;
+                    return Ok(Request::Noop);
+                }
+                if !is_valid_content(content.clone()) {
+                    self.outgoing(Response::Err(Error::IllegalFileContent))
+                        .await?;
+                    return Ok(Request::Noop);
+                }
+
+                return Ok(Request::PutFile { path, content });
+            }
+        }
+
+        self.outgoing(Response::Err(Error::PutUsage)).await?;
+        Ok(Request::Noop)
+    }
+
+    async fn parse_list_command(&mut self, parts: Vec<&str>) -> Result<Request> {
+        if parts.len() == 2 {
+            let path = parts[1].to_string();
+
+            if !is_valid_path(&path) {
+                self.outgoing(Response::Err(Error::IllegalPath)).await?;
+                return Ok(Request::Noop);
+            }
+
+            return Ok(Request::ListDir { path });
+        }
+
+        self.outgoing(Response::Err(Error::ListUsage)).await?;
+        Ok(Request::Noop)
     }
 }
 
@@ -413,39 +472,21 @@ async fn handle(mut socket: TcpStream, _remote_addr: SocketAddr, mut state: Stat
     loop {
         match ctx.incoming().await? {
             Request::PutFile { path, content } => {
-                if !is_valid_path(&path) {
-                    ctx.outgoing(Response::Err(Error::IllegalPath)).await?;
-                } else if !is_valid_content(content.clone()) {
-                    ctx.outgoing(Response::Err(Error::IllegalFileContent))
-                        .await?;
-                } else {
-                    let revision = state.put(path, content);
-                    ctx.outgoing(Response::FileRevision(revision)).await?;
-                }
+                let revision = state.put(path, content);
+                ctx.outgoing(Response::FileRevision(revision)).await?;
             }
             Request::GetFile { path, revision } => {
-                if !is_valid_path(&path) {
-                    ctx.outgoing(Response::Err(Error::IllegalPath)).await?;
-                } else {
-                    let resp = match state.get(path, revision) {
-                        Some(content) => Response::FileContent(content),
-                        None => Response::Err(Error::FileNotFound),
-                    };
+                let resp = match state.get(path, revision) {
+                    Some(content) => Response::FileContent(content),
+                    None => Response::Err(Error::FileNotFound),
+                };
 
-                    ctx.outgoing(resp).await?;
-                }
+                ctx.outgoing(resp).await?;
             }
             Request::ListDir { path } => {
-                if !is_valid_path(&path) {
-                    ctx.outgoing(Response::Err(Error::IllegalPath)).await?;
-                } else {
-                    ctx.outgoing(Response::Files(state.list(path))).await?;
-                }
+                ctx.outgoing(Response::Files(state.list(path))).await?;
             }
-            Request::Unsupported { command } => {
-                ctx.outgoing(Response::Err(Error::InvalidCommand(command)))
-                    .await?;
-            }
+            Request::Noop => {}
             Request::Closed => {
                 info!("Closing the connection");
                 break;
@@ -465,10 +506,8 @@ async fn test_upstream() -> Result<()> {
         info!("Greet from upstream: '{}'", buf);
     }
 
-    upstream
-        .writer
-        .write_all(b"PUT /not-a-filename 0\n")
-        .await?;
+    upstream.writer.write_all(b"LIST\n").await?;
+    upstream.writer.write_all(b"GET\n").await?;
 
     loop {
         let mut buf = String::new();
@@ -480,7 +519,7 @@ async fn test_upstream() -> Result<()> {
 }
 
 pub async fn run(addr: SocketAddr) -> Result<()> {
-    // test_upstream().await?;
+    test_upstream().await?;
     let listener = TcpListener::bind(addr).await?;
     info!("TCP Server listening on {}", addr);
 
