@@ -160,6 +160,7 @@ enum Response {
     Ready,
     FileContent(Bytes),
     FileRevision(u64),
+    Files(Vec<String>),
     Err(Error),
 }
 
@@ -176,6 +177,13 @@ impl Into<Bytes> for Response {
             Self::FileRevision(revision) => {
                 let mut buf = BytesMut::from(format!("OK r{}\n", revision).as_bytes());
                 buf.put(&b"READY\n"[..]);
+                buf.freeze()
+            }
+            Self::Files(files) => {
+                let mut buf = BytesMut::from(format!("OK {}\n", files.len()).as_bytes());
+                for f in files {
+                    buf.put_slice(f.as_bytes());
+                }
                 buf.freeze()
             }
             Self::Err(e) => {
@@ -333,6 +341,7 @@ async fn handle(mut socket: TcpStream, remote_addr: SocketAddr, mut state: State
             }
             Request::ListDir { path } => {
                 info!("{} -> Server: LIST {}", remote_addr, path);
+                ctx.outgoing(Response::Files(state.list(path))).await?;
             }
             Request::Closed => {
                 info!("Closing the connection");
