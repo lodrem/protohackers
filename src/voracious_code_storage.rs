@@ -47,6 +47,7 @@ where
         let req = match self.reader.read_line(&mut buf).await? {
             0 => Request::Closed,
             _ => {
+                buf.pop();
                 info!("Received incoming message: '{}'", buf);
                 let parts: Vec<_> = buf.split(' ').collect();
                 match parts[0] {
