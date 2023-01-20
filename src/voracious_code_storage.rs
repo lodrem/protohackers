@@ -38,6 +38,7 @@ impl State {
             f.revision += 1;
             f.data = content;
         }
+
         f.revision
     }
 
@@ -188,7 +189,7 @@ impl Upstream {
     }
 }
 
-async fn handle(mut socket: TcpStream, _remote_addr: SocketAddr, mut state: State) -> Result<()> {
+async fn handle(mut socket: TcpStream, remote_addr: SocketAddr, mut state: State) -> Result<()> {
     let mut ctx = {
         let (rh, wh) = socket.split();
         let rh = BufReader::new(rh);
@@ -202,17 +203,31 @@ async fn handle(mut socket: TcpStream, _remote_addr: SocketAddr, mut state: Stat
         match ctx.incoming().await? {
             Request::PutFile { filename, content } => {
                 info!(
-                    "Requesting to put content[len={}] into file '{}'",
-                    content.len(),
-                    filename
+                    "{} -> Server: PUT {} with content '{}'",
+                    remote_addr,
+                    filename,
+                    unsafe {
+                        String::from_utf8_unchecked(content.clone().to_vec()).replace('\n', "<NL>")
+                    }
                 );
                 let revision = state.put(filename, content);
+                info!("{} <- Server: OK with revision {}", remote_addr, revision);
                 ctx.outgoing(Response::FileRevision(revision)).await?;
             }
             Request::GetFile { filename } => {
+                info!("{} -> Server: GET {}", remote_addr, filename,);
                 let resp = match state.get(filename) {
-                    Some(content) => Response::FileContent(content),
-                    None => Response::Err(Error::FileNotFound),
+                    Some(content) => {
+                        info!("{} <- Server: OK with content '{}'", remote_addr, unsafe {
+                            String::from_utf8_unchecked(content.clone().to_vec())
+                                .replace('\n', "<NL>")
+                        });
+                        Response::FileContent(content)
+                    }
+                    None => {
+                        info!("{} <- Server: Error because file not found", remote_addr);
+                        Response::Err(Error::FileNotFound)
+                    }
                 };
 
                 ctx.outgoing(resp).await?;
