@@ -148,6 +148,9 @@ where
 
     pub async fn outgoing(&mut self, response: Response) -> Result<()> {
         let data: Bytes = response.into();
+        info!("<- Server: {}", unsafe {
+            String::from_utf8_unchecked(data.clone().to_vec()).replace('\n', "<NL>")
+        });
         self.writer.write_all(&data).await?;
         Ok(())
     }
