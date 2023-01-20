@@ -384,7 +384,7 @@ impl Upstream {
 
 #[inline]
 pub fn is_valid_path(path: &str) -> bool {
-    if path.contains("//") {
+    if path.contains("//") || !path.starts_with('/') {
         false
     } else {
         path.chars()
@@ -466,11 +466,15 @@ async fn test_upstream() -> Result<()> {
     }
 
     upstream
-        .send(Request::PutFile {
-            path: "/foo".to_string(),
-            content: Bytes::from("xx"),
-        })
+        .writer
+        .write_all(b"PUT /not-a-filename 0\n")
         .await?;
+
+    loop {
+        let mut buf = String::new();
+        upstream.reader.read_line(&mut buf).await?;
+        info!("-> Server: {}", buf.replace('\n', "<NL>"));
+    }
 
     bail!("foobar");
 }
