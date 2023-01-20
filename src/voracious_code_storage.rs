@@ -52,8 +52,8 @@ impl INode {
     #[inline]
     pub fn list_dir(&self, path: String) -> Vec<String> {
         let dirs = Self::split_path(path);
-        match self.cd_dir(dirs).ok() {
-            Some(d) => d
+        match self.cd_dir(dirs) {
+            Ok(d) => d
                 .children
                 .iter()
                 .map(|(filename, inode)| {
@@ -68,7 +68,9 @@ impl INode {
                     )
                 })
                 .collect(),
-            None => vec![],
+            Err(e) => {
+                vec![format!("{:?}", e)]
+            }
         }
     }
 
@@ -88,7 +90,7 @@ impl INode {
         for d in dirs {
             match dir.children.get(&d) {
                 Some(next) => dir = next,
-                None => bail!("{} dir doesn't exist", d),
+                None => bail!("'{}' dir doesn't exist", d),
             }
         }
 
@@ -98,7 +100,11 @@ impl INode {
     #[inline]
     fn split_path(path: String) -> Vec<String> {
         let parts: Vec<_> = path.trim_matches('/').split('/').collect();
-        parts.into_iter().map(|s| s.to_string()).collect()
+        parts
+            .into_iter()
+            .filter(|s| !s.is_empty())
+            .map(|s| s.to_string())
+            .collect()
     }
 
     #[inline]
@@ -221,7 +227,7 @@ where
             0 => Request::Closed,
             _ => {
                 buf.pop();
-                info!("Received incoming message: '{}'", buf);
+                info!("-> Server: '{}'", buf);
                 let parts: Vec<_> = buf.split(' ').collect();
                 match parts[0] {
                     "PUT" => {
@@ -439,4 +445,27 @@ pub async fn run(addr: SocketAddr) -> Result<()> {
     //     }
     //     Ok(())
     // }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::voracious_code_storage::INode;
+
+    #[test]
+    fn test_inode() {
+        use super::*;
+
+        let mut root = INode::dir();
+
+        assert_eq!(
+            root.write_file("/foo.txt".to_string(), Bytes::from("Hello, world"))
+                .unwrap(),
+            1
+        );
+
+        assert!(!root.children.is_empty());
+        assert!(root.children.contains_key("foo.txt"));
+
+        assert_eq!(root.list_dir("/".to_string()), vec!["foo.txt r1"]);
+    }
 }
