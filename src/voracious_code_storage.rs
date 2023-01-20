@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::fmt::{Display, Formatter};
 use std::net::SocketAddr;
 use std::sync::{Arc, RwLock};
 
@@ -19,6 +20,17 @@ impl Into<Bytes> for INodeInfo {
         match self {
             Self::File { filename, revision } => Bytes::from(format!("{} r{}", filename, revision)),
             Self::Directory { filename } => Bytes::from(format!("{} DIR", filename)),
+        }
+    }
+}
+
+impl Display for INodeInfo {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::File { filename, revision } => {
+                write!(f, "File[{}, revision={}]", filename, revision)
+            }
+            Self::Directory { filename } => write!(f, "Dir[{}]", filename),
         }
     }
 }
@@ -184,6 +196,7 @@ enum Request {
     Closed,
 }
 
+#[derive(Debug)]
 enum Error {
     FileNotFound,
 }
@@ -235,6 +248,21 @@ impl Into<Bytes> for Response {
                 buf.put(&b"READY\n"[..]);
                 buf.freeze()
             }
+        }
+    }
+}
+
+impl Display for Response {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Ready => write!(f, "Response::Ready"),
+            Self::FileContent(content) => write!(f, "FileContent[len={}]", content.len()),
+            Self::FileRevision(revision) => write!(f, "FileRevision[{}]", revision),
+            Self::Files(files) => write!(f, "Files[len={}]: {}", files.len(), {
+                let files: Vec<_> = files.iter().map(|f| format!("{}", f)).collect();
+                files.join(",")
+            }),
+            Self::Err(e) => write!(f, "Error[{:?}]", e),
         }
     }
 }
@@ -299,9 +327,7 @@ where
 
     pub async fn outgoing(&mut self, response: Response) -> Result<()> {
         let data: Bytes = response.into();
-        info!("<- Server: {}", unsafe {
-            String::from_utf8_unchecked(data.clone().to_vec()).replace('\n', "<NL>")
-        });
+        info!("<- Server: {}", response);
         self.writer.write_all(&data).await?;
         Ok(())
     }
