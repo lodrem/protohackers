@@ -193,6 +193,7 @@ enum Request {
     PutFile { path: String, content: Bytes },
     GetFile { path: String, revision: Option<u64> },
     ListDir { path: String },
+    Unsupported { command: String },
     Closed,
 }
 
@@ -200,6 +201,8 @@ enum Request {
 enum Error {
     FileNotFound,
     IllegalPath,
+    IllegalFileContent,
+    InvalidCommand(String),
 }
 
 impl Into<Bytes> for Error {
@@ -207,6 +210,8 @@ impl Into<Bytes> for Error {
         match self {
             Self::FileNotFound => Bytes::from_static(b"no such file"),
             Self::IllegalPath => Bytes::from_static(b"illegal file name"),
+            Self::IllegalFileContent => Bytes::from_static(b"text files only"),
+            Self::InvalidCommand(cmd) => Bytes::from(format!("illegal method: {}", cmd)),
         }
     }
 }
@@ -318,9 +323,9 @@ where
                     "LIST" => Request::ListDir {
                         path: parts[1].to_string(),
                     },
-                    typ => {
-                        bail!("unknown request type: {}", typ);
-                    }
+                    typ => Request::Unsupported {
+                        command: typ.to_string(),
+                    },
                 }
             }
         };
@@ -387,6 +392,14 @@ pub fn is_valid_path(path: &str) -> bool {
     }
 }
 
+#[inline]
+pub fn is_valid_content(content: Bytes) -> bool {
+    content
+        .into_iter()
+        .map(char::from)
+        .all(|c| char::is_ascii(&c))
+}
+
 async fn handle(mut socket: TcpStream, _remote_addr: SocketAddr, mut state: State) -> Result<()> {
     let mut ctx = {
         let (rh, wh) = socket.split();
@@ -402,6 +415,9 @@ async fn handle(mut socket: TcpStream, _remote_addr: SocketAddr, mut state: Stat
             Request::PutFile { path, content } => {
                 if !is_valid_path(&path) {
                     ctx.outgoing(Response::Err(Error::IllegalPath)).await?;
+                } else if !is_valid_content(content.clone()) {
+                    ctx.outgoing(Response::Err(Error::IllegalFileContent))
+                        .await?;
                 } else {
                     let revision = state.put(path, content);
                     ctx.outgoing(Response::FileRevision(revision)).await?;
@@ -426,6 +442,10 @@ async fn handle(mut socket: TcpStream, _remote_addr: SocketAddr, mut state: Stat
                     ctx.outgoing(Response::Files(state.list(path))).await?;
                 }
             }
+            Request::Unsupported { command } => {
+                ctx.outgoing(Response::Err(Error::InvalidCommand(command)))
+                    .await?;
+            }
             Request::Closed => {
                 info!("Closing the connection");
                 break;
@@ -445,23 +465,12 @@ async fn test_upstream() -> Result<()> {
         info!("Greet from upstream: '{}'", buf);
     }
 
-    // illegal
-    // /B2u@^+K
-    // //znY}Nr
-
-    // ok
-    // /.L1A9SLX_anHfXlhh2/kdxBzr9zlJGSjlRCncrX4.lVgX2M4tZVSiG
-    let v = Bytes::from("Hello, world");
-    let filenames = ["/foo..bar"];
-
-    for filename in filenames {
-        upstream
-            .send(Request::PutFile {
-                path: filename.to_string(),
-                content: v.clone(),
-            })
-            .await?;
-    }
+    upstream
+        .send(Request::PutFile {
+            path: "/foo".to_string(),
+            content: Bytes::from("xx"),
+        })
+        .await?;
 
     bail!("foobar");
 }
