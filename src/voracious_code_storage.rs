@@ -368,7 +368,7 @@ where
                     self.outgoing(Response::Err(Error::IllegalPath)).await?;
                     return Ok(Request::Noop);
                 }
-                if !is_valid_content(content.clone()) {
+                if !is_valid_content(&content) {
                     self.outgoing(Response::Err(Error::IllegalFileContent))
                         .await?;
                     return Ok(Request::Noop);
@@ -452,11 +452,10 @@ pub fn is_valid_path(path: &str) -> bool {
 }
 
 #[inline]
-pub fn is_valid_content(content: Bytes) -> bool {
+pub fn is_valid_content(content: &[u8]) -> bool {
     content
         .into_iter()
-        .map(char::from)
-        .all(|c| char::is_ascii(&c))
+        .all(|&c| (9 <= c && c <= 11) || (32 <= c && c <= 127))
 }
 
 async fn handle(mut socket: TcpStream, _remote_addr: SocketAddr, mut state: State) -> Result<()> {
