@@ -383,7 +383,7 @@ pub fn is_valid_path(path: &str) -> bool {
         false
     } else {
         path.chars()
-            .all(|c| c == '.' || c == '/' || char::is_alphanumeric(c))
+            .all(|c| c == '.' || c == '/' || c == '-' || c == '_' || char::is_alphanumeric(c))
     }
 }
 
