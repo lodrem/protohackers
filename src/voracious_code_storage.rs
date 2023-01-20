@@ -189,6 +189,7 @@ impl Into<Bytes> for Response {
                 let mut buf = BytesMut::from(format!("OK {}\n", files.len()).as_bytes());
                 for f in files {
                     buf.put_slice(f.as_bytes());
+                    buf.put_u8(b'\n');
                 }
                 buf.put(&b"READY\n"[..]);
                 buf.freeze()
