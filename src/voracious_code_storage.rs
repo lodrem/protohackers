@@ -184,6 +184,7 @@ impl Into<Bytes> for Response {
                 for f in files {
                     buf.put_slice(f.as_bytes());
                 }
+                buf.put(&b"READY\n"[..]);
                 buf.freeze()
             }
             Self::Err(e) => {
