@@ -227,6 +227,7 @@ enum Response {
     FileContent(Bytes),
     FileRevision(u64),
     Files(Vec<INodeInfo>),
+    Help,
     Err(Error),
 }
 
@@ -254,6 +255,7 @@ impl Into<Bytes> for Response {
                 buf.put(&b"READY\n"[..]);
                 buf.freeze()
             }
+            Self::Help => Bytes::from_static(b"OK usage: HELP|GET|PUT|LIST\nREADY\n"),
             Self::Err(e) => {
                 let mut buf = BytesMut::from(&b"ERR "[..]);
                 buf.put::<Bytes>(e.into());
@@ -275,6 +277,7 @@ impl Display for Response {
                 let files: Vec<_> = files.iter().map(|f| format!("{}", f)).collect();
                 files.join(",")
             }),
+            Self::Help => write!(f, "HELP"),
             Self::Err(e) => write!(f, "Error[{:?}]", e),
         }
     }
@@ -309,6 +312,10 @@ where
                     "PUT" => self.parse_put_command(parts).await?,
                     "GET" => self.parse_get_command(parts).await?,
                     "LIST" => self.parse_list_command(parts).await?,
+                    "HELP" => {
+                        self.outgoing(Response::Help).await?;
+                        Request::Noop
+                    }
                     typ => {
                         self.outgoing(Response::Err(Error::InvalidCommand(typ.to_string())))
                             .await?;
