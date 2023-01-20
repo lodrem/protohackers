@@ -1,28 +1,100 @@
+use std::collections::HashMap;
 use std::net::SocketAddr;
+use std::sync::{Arc, RwLock};
 
 use anyhow::{bail, Result};
+use bytes::{BufMut, Bytes, BytesMut};
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
-use tokio::net::TcpStream;
+use tokio::net::{TcpListener, TcpStream};
 use tracing::{error, info};
 
-use crate::tcp;
+struct File {
+    data: Bytes,
+    revision: u64,
+}
+
+#[derive(Clone)]
+struct State {
+    files: Arc<RwLock<HashMap<String, File>>>,
+}
+
+impl State {
+    pub fn new() -> Self {
+        Self {
+            files: Arc::new(RwLock::new(HashMap::new())),
+        }
+    }
+
+    pub fn put(&mut self, filename: String, content: Bytes) -> u64 {
+        let mut files = self.files.write().unwrap();
+
+        let f = files.entry(filename).or_insert_with(|| File {
+            data: content.clone(),
+            revision: 1,
+        });
+
+        if f.data != content {
+            f.revision += 1;
+            f.data = content;
+        }
+        f.revision
+    }
+
+    pub fn get(&mut self, filename: String) -> Option<Bytes> {
+        let files = self.files.read().unwrap();
+        files.get(&filename).map(|f| f.data.clone())
+    }
+}
 
 enum Request {
-    PutFile { filename: String, content: Vec<u8> },
+    PutFile { filename: String, content: Bytes },
+    GetFile { filename: String },
     Closed,
+}
+
+enum Error {
+    FileNotFound,
+}
+
+impl Into<Bytes> for Error {
+    fn into(self) -> Bytes {
+        match self {
+            Self::FileNotFound => Bytes::from_static(b"no such file"),
+        }
+    }
 }
 
 enum Response {
     Ready,
+    FileContent(Bytes),
+    FileRevision(u64),
+    Err(Error),
 }
 
-impl Into<Vec<u8>> for Response {
-    fn into(self) -> Vec<u8> {
+impl Into<Bytes> for Response {
+    fn into(self) -> Bytes {
         match self {
-            Self::Ready => b"READY\n",
+            Self::Ready => Bytes::from_static(b"READY\n"),
+            Self::FileContent(content) => {
+                let mut buf = BytesMut::from(format!("OK {}\n", content.len()).as_bytes());
+                buf.put(content);
+                buf.put(&b"READY\n"[..]);
+                buf.freeze()
+            }
+            Self::FileRevision(revision) => {
+                let mut buf = BytesMut::from(format!("OK r{}\n", revision).as_bytes());
+                buf.put(&b"READY\n"[..]);
+                buf.freeze()
+            }
+            Self::Err(e) => {
+                let mut buf = BytesMut::from(&b"ERR "[..]);
+                buf.put::<Bytes>(e.into());
+                buf.put_u8(b'\n');
+                buf.put(&b"READY\n"[..]);
+                buf.freeze()
+            }
         }
-        .to_vec()
     }
 }
 
@@ -58,9 +130,12 @@ where
                         self.reader.read_exact(&mut content).await?;
                         Request::PutFile {
                             filename: parts[1].to_string(),
-                            content,
+                            content: Bytes::from(content),
                         }
                     }
+                    "GET" => Request::GetFile {
+                        filename: parts[1].to_string(),
+                    },
                     typ => {
                         bail!("unknown request type: {}", typ);
                     }
@@ -71,7 +146,7 @@ where
     }
 
     pub async fn outgoing(&mut self, response: Response) -> Result<()> {
-        let data: Vec<u8> = response.into();
+        let data: Bytes = response.into();
         self.writer.write_all(&data).await?;
         Ok(())
     }
@@ -113,25 +188,34 @@ impl Upstream {
     }
 }
 
-async fn handle(mut socket: TcpStream, _remote_addr: SocketAddr) -> Result<()> {
+async fn handle(mut socket: TcpStream, _remote_addr: SocketAddr, mut state: State) -> Result<()> {
     let mut ctx = {
         let (rh, wh) = socket.split();
         let rh = BufReader::new(rh);
         Context::new(rh, wh)
     };
-    let mut upstream = Upstream::connect().await?;
+
+    // send greeting message
+    ctx.outgoing(Response::Ready).await?;
+
     loop {
-        let req = ctx.incoming().await?;
-        match req {
+        match ctx.incoming().await? {
             Request::PutFile { filename, content } => {
                 info!(
                     "Requesting to put content[len={}] into file '{}'",
                     content.len(),
                     filename
                 );
-                upstream
-                    .send(Request::PutFile { filename, content })
-                    .await?;
+                let revision = state.put(filename, content);
+                ctx.outgoing(Response::FileRevision(revision)).await?;
+            }
+            Request::GetFile { filename } => {
+                let resp = match state.get(filename) {
+                    Some(content) => Response::FileContent(content),
+                    None => Response::Err(Error::FileNotFound),
+                };
+
+                ctx.outgoing(resp).await?;
             }
             Request::Closed => {
                 info!("Closing the connection");
@@ -146,5 +230,56 @@ async fn handle(mut socket: TcpStream, _remote_addr: SocketAddr) -> Result<()> {
 }
 
 pub async fn run(addr: SocketAddr) -> Result<()> {
-    tcp::serve(addr, handle).await
+    let listener = TcpListener::bind(addr).await?;
+    info!("TCP Server listening on {}", addr);
+
+    let state = State::new();
+    loop {
+        let state = state.clone();
+        match listener.accept().await {
+            Ok((socket, remote_addr)) => {
+                tokio::spawn(async move {
+                    info!("Accepting socket from {}", remote_addr);
+                    let _ = handle(socket, remote_addr, state).await;
+                    info!("Dropping socket {}", remote_addr);
+                });
+            }
+            Err(e) => {
+                error!("Failed to accept socket: {:?}", e);
+            }
+        }
+    }
+
+    // let mut upstream = Upstream::connect().await?;
+
+    // upstream
+    //     .send(Request::PutFile {
+    //         filename: "/foo.txt".to_string(),
+    //         content: "Hello, world".to_string().into_bytes(),
+    //     })
+    //     .await?;
+    //
+
+    //
+    // upstream.writer.write_all(b"GET /foo.txt\n").await?;
+    // let mut buf = String::new();
+    // upstream.reader.read_line(&mut buf).await?;
+    // info!("Greet from upstream: '{}'", buf);
+    //
+    // upstream
+    //     .send(Request::PutFile {
+    //         filename: "/foo.txt".to_string(),
+    //         content: "damn you".to_string().into_bytes(),
+    //     })
+    //     .await?;
+    // upstream.writer.write_all(b"GET /foo.txt\n").await?;
+    // upstream.writer.write_all(b"GET /baz.txt\n").await?;
+    // upstream.writer.write_all(b"GET /baz.txt\n").await?;
+    //
+    // loop {
+    //     let mut buf = String::new();
+    //     upstream.reader.read_line(&mut buf).await?;
+    //     info!("Received from upstream: '{}'", buf);
+    // }
+    // Ok(())
 }
