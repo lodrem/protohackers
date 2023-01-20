@@ -326,8 +326,8 @@ where
     }
 
     pub async fn outgoing(&mut self, response: Response) -> Result<()> {
-        let data: Bytes = response.into();
         info!("<- Server: {}", response);
+        let data: Bytes = response.into();
         self.writer.write_all(&data).await?;
         Ok(())
     }
