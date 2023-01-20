@@ -19,7 +19,7 @@ impl Into<Bytes> for INodeInfo {
     fn into(self) -> Bytes {
         match self {
             Self::File { filename, revision } => Bytes::from(format!("{} r{}", filename, revision)),
-            Self::Directory { filename } => Bytes::from(format!("{} DIR", filename)),
+            Self::Directory { filename } => Bytes::from(format!("{}/ DIR", filename)),
         }
     }
 }
@@ -485,7 +485,7 @@ async fn test_upstream() -> Result<()> {
 }
 
 pub async fn run(addr: SocketAddr) -> Result<()> {
-    // test_upstream().await
+    test_upstream().await?;
     let listener = TcpListener::bind(addr).await?;
     info!("TCP Server listening on {}", addr);
 
