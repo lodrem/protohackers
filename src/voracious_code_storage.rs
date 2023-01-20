@@ -48,6 +48,7 @@ impl INode {
             children: HashMap::new(),
         });
         if content != f.content {
+            f.content = content;
             f.revision += 1;
         }
         Ok(f.revision)
@@ -477,21 +478,35 @@ pub async fn run(addr: SocketAddr) -> Result<()> {
 mod tests {
     use crate::voracious_code_storage::INode;
 
-    #[test]
-    fn test_inode() {
+    #[tokio::test]
+    async fn test() {
         use super::*;
 
         let mut root = INode::dir();
-
         assert_eq!(
-            root.write_file("/foo.txt".to_string(), Bytes::from("Hello, world"))
+            root.write_file("/x/foo.txt".to_string(), Bytes::from("Hello, world"))
                 .unwrap(),
             1
         );
-
-        assert!(!root.children.is_empty());
-        assert!(root.children.contains_key("foo.txt"));
-
-        assert_eq!(root.list_dir("/".to_string()), vec!["foo.txt r1"]);
+        assert_eq!(
+            root.write_file("/x/foo.txt".to_string(), Bytes::from("Hello, world"))
+                .unwrap(),
+            1
+        );
+        assert_eq!(
+            root.write_file("/x/foo.txt".to_string(), Bytes::from("Hello, orld"))
+                .unwrap(),
+            2
+        );
+        assert_eq!(
+            root.write_file("/x/foo.txt".to_string(), Bytes::from("Hello, world"))
+                .unwrap(),
+            3
+        );
+        assert_eq!(
+            root.write_file("/x/foo.txt".to_string(), Bytes::from("Hello, world"))
+                .unwrap(),
+            3
+        );
     }
 }
