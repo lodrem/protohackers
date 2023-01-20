@@ -1,7 +1,8 @@
 use std::net::SocketAddr;
 
-use anyhow::{anyhow, bail, Result};
+use anyhow::{bail, Result};
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader};
+use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::net::TcpStream;
 use tracing::{error, info};
 
@@ -76,12 +77,49 @@ where
     }
 }
 
+struct Upstream {
+    reader: BufReader<OwnedReadHalf>,
+    writer: OwnedWriteHalf,
+}
+
+impl Upstream {
+    pub async fn connect() -> Result<Self> {
+        const ADDR: &'static str = "vcs.protohackers.com:30307";
+        let (rh, wh) = TcpStream::connect(ADDR).await?.into_split();
+        Ok(Self {
+            reader: BufReader::new(rh),
+            writer: wh,
+        })
+    }
+
+    pub async fn send(&mut self, req: Request) -> Result<Response> {
+        let resp = match req {
+            Request::PutFile { filename, content } => {
+                let mut data = format!("PUT {} {}\n", filename, content.len()).into_bytes();
+                data.extend(content);
+                info!("Sending {} to Upstream", unsafe {
+                    String::from_utf8_unchecked(data.clone())
+                });
+                self.writer.write_all(&data).await?;
+
+                let mut resp = String::new();
+                self.reader.read_line(&mut resp).await?;
+                info!("Received {} from Upstream", resp);
+                Response::Ready
+            }
+            _ => Response::Ready,
+        };
+        Ok(resp)
+    }
+}
+
 async fn handle(mut socket: TcpStream, _remote_addr: SocketAddr) -> Result<()> {
     let mut ctx = {
         let (rh, wh) = socket.split();
         let rh = BufReader::new(rh);
         Context::new(rh, wh)
     };
+    let mut upstream = Upstream::connect().await?;
     loop {
         let req = ctx.incoming().await?;
         match req {
@@ -91,6 +129,9 @@ async fn handle(mut socket: TcpStream, _remote_addr: SocketAddr) -> Result<()> {
                     content.len(),
                     filename
                 );
+                upstream
+                    .send(Request::PutFile { filename, content })
+                    .await?;
             }
             Request::Closed => {
                 info!("Closing the connection");
