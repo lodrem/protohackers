@@ -6,7 +6,6 @@ use std::sync::{Arc, RwLock};
 use anyhow::{bail, Result};
 use bytes::{BufMut, Bytes, BytesMut};
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader};
-use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::net::{TcpListener, TcpStream};
 use tracing::{error, info};
 
@@ -406,48 +405,6 @@ where
     }
 }
 
-struct Upstream {
-    reader: BufReader<OwnedReadHalf>,
-    writer: OwnedWriteHalf,
-}
-
-impl Upstream {
-    pub async fn connect() -> Result<Self> {
-        const ADDR: &'static str = "vcs.protohackers.com:30307";
-        let (rh, wh) = TcpStream::connect(ADDR).await?.into_split();
-        Ok(Self {
-            reader: BufReader::new(rh),
-            writer: wh,
-        })
-    }
-
-    pub async fn send(&mut self, req: Request) -> Result<Response> {
-        let resp = match req {
-            Request::PutFile {
-                path: filename,
-                content,
-            } => {
-                let mut data = format!("PUT {} {}\n", filename, content.len()).into_bytes();
-                data.extend(content);
-                info!("-> Upstream: {}", unsafe {
-                    String::from_utf8_unchecked(data.clone()).replace('\n', "<NL>")
-                });
-                self.writer.write_all(&data).await?;
-
-                let mut resp = String::new();
-                self.reader.read_line(&mut resp).await?;
-                info!("<- Upstream: {}", resp);
-                let mut resp = String::new();
-                self.reader.read_line(&mut resp).await?;
-                info!("<- Upstream: {}", resp);
-                Response::Ready
-            }
-            _ => Response::Ready,
-        };
-        Ok(resp)
-    }
-}
-
 #[inline]
 pub fn is_valid_path(path: &str) -> bool {
     if path.contains("//") || !path.starts_with('/') {
@@ -501,27 +458,6 @@ async fn handle(mut socket: TcpStream, _remote_addr: SocketAddr, mut state: Stat
     }
 
     Ok(())
-}
-
-async fn test_upstream() -> Result<()> {
-    let mut upstream = Upstream::connect().await?;
-
-    {
-        let mut buf = String::new();
-        upstream.reader.read_line(&mut buf).await?;
-        info!("Greet from upstream: '{}'", buf);
-    }
-
-    upstream.writer.write_all(b"LIST\n").await?;
-    upstream.writer.write_all(b"GET\n").await?;
-
-    loop {
-        let mut buf = String::new();
-        upstream.reader.read_line(&mut buf).await?;
-        info!("-> Server: {}", buf.replace('\n', "<NL>"));
-    }
-
-    bail!("foobar");
 }
 
 pub async fn run(addr: SocketAddr) -> Result<()> {
