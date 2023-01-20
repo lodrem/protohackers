@@ -240,8 +240,6 @@ async fn handle(mut socket: TcpStream, remote_addr: SocketAddr, mut state: State
                 break;
             }
         }
-
-        ctx.outgoing(Response::Ready).await?;
     }
 
     Ok(())
