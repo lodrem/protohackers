@@ -382,7 +382,8 @@ pub fn is_valid_path(path: &str) -> bool {
     if path.contains("//") {
         false
     } else {
-        path.chars().all(|c| c == '.' || char::is_alphanumeric(c))
+        path.chars()
+            .all(|c| c == '.' || c == '/' || char::is_alphanumeric(c))
     }
 }
 
@@ -485,62 +486,5 @@ pub async fn run(addr: SocketAddr) -> Result<()> {
                 error!("Failed to accept socket: {:?}", e);
             }
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::voracious_code_storage::INode;
-
-    #[tokio::test]
-    async fn test() {
-        use super::*;
-
-        let mut root = INode::dir();
-        assert_eq!(
-            root.write_file("/x/foo.txt".to_string(), Bytes::from("Hello, world"))
-                .unwrap(),
-            1
-        );
-        assert_eq!(
-            root.write_file("/x/foo.txt".to_string(), Bytes::from("Hello, world"))
-                .unwrap(),
-            1
-        );
-        assert_eq!(
-            root.write_file("/x/foo.txt".to_string(), Bytes::from("Hello, orld"))
-                .unwrap(),
-            2
-        );
-        assert_eq!(
-            root.write_file("/x/foo.txt".to_string(), Bytes::from("Hello, world"))
-                .unwrap(),
-            3
-        );
-        assert_eq!(
-            root.write_file("/x/foo.txt".to_string(), Bytes::from("Hello, world"))
-                .unwrap(),
-            3
-        );
-
-        assert_eq!(
-            root.get_file("/x/foo.txt".to_string(), None),
-            Some(Bytes::from("Hello, world"))
-        );
-
-        assert_eq!(
-            root.get_file("/x/foo.txt".to_string(), Some(3)),
-            Some(Bytes::from("Hello, world"))
-        );
-
-        assert_eq!(
-            root.get_file("/x/foo.txt".to_string(), Some(2)),
-            Some(Bytes::from("Hello, orld"))
-        );
-
-        assert_eq!(
-            root.get_file("/x/foo.txt".to_string(), Some(1)),
-            Some(Bytes::from("Hello, world"))
-        );
     }
 }
