@@ -20,3 +20,4 @@ Solutions for [Server programming challenge](https://protohackers.com/) in Rust.
 | 7: Line Reversal            | `just run line_reversal`            |
 | 8: Insecure Sockets Layer   | `just run insecure_sockets_layer`   |
 | 9: Job Centre               | `just run job_centre`               |
+| 10: Voracious Code Storage  | `just run voracious_code_storage`   |
