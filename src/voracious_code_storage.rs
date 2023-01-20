@@ -330,7 +330,7 @@ where
     async fn parse_get_command(&mut self, parts: Vec<&str>) -> Result<Request> {
         if 2 <= parts.len() && parts.len() <= 3 {
             let path = parts[1].to_string();
-            if !is_valid_path(&path) {
+            if !is_valid_path(&path) || path.ends_with('/') {
                 self.outgoing(Response::Err(Error::IllegalPath)).await?;
                 return Ok(Request::Noop);
             }
@@ -364,7 +364,7 @@ where
                     Bytes::from(buf)
                 };
 
-                if !is_valid_path(&path) {
+                if !is_valid_path(&path) || path.ends_with('/') {
                     self.outgoing(Response::Err(Error::IllegalPath)).await?;
                     return Ok(Request::Noop);
                 }
