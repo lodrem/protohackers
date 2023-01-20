@@ -24,16 +24,14 @@ impl Into<Bytes> for INodeInfo {
 }
 
 struct INode {
-    content: Bytes,
-    revision: u64,
+    revisions: Vec<Bytes>,
     children: HashMap<String, INode>, // An Inode could be both directory and file
 }
 
 impl INode {
     pub fn dir() -> Self {
         Self {
-            content: Bytes::new(),
-            revision: 0,
+            revisions: Vec::new(),
             children: HashMap::new(),
         }
     }
@@ -43,25 +41,36 @@ impl INode {
 
         let dir = self.mkdir(dirs)?;
         let f = dir.children.entry(filename).or_insert_with(|| INode {
-            content: content.clone(),
-            revision: 1,
+            revisions: vec![content.clone()],
             children: HashMap::new(),
         });
-        if content != f.content {
-            f.content = content;
-            f.revision += 1;
+        if let Some(latest_content) = f.revisions.last() {
+            if *latest_content != content {
+                f.revisions.push(content);
+            }
+        } else {
+            f.revisions.push(content);
         }
-        Ok(f.revision)
+        Ok(f.revisions.len() as u64)
     }
 
     #[inline]
-    pub fn get_file(&self, path: String) -> Option<Bytes> {
+    pub fn get_file(&self, path: String, revision: Option<u64>) -> Option<Bytes> {
         let (dirs, filename) = Self::split_path_with_filename(path);
         self.cd_dir(dirs)
             .ok()?
             .children
             .get(&filename)
-            .map(|f| f.content.clone())
+            .and_then(|f| {
+                let revision = revision.unwrap_or(f.revisions.len() as u64) as usize;
+                if f.revisions.is_empty() || revision == 0 {
+                    None
+                } else if revision <= f.revisions.len() {
+                    Some(f.revisions[revision - 1].clone())
+                } else {
+                    None
+                }
+            })
     }
 
     #[inline]
@@ -76,7 +85,7 @@ impl INode {
                         if inode.children.is_empty() {
                             INodeInfo::File {
                                 filename: filename.clone(),
-                                revision: inode.revision,
+                                revision: inode.revisions.len() as u64,
                             }
                         } else {
                             INodeInfo::Directory {
@@ -157,9 +166,9 @@ impl State {
         root.write_file(path, content).expect("write to file")
     }
 
-    pub fn get(&mut self, path: String) -> Option<Bytes> {
+    pub fn get(&mut self, path: String, revision: Option<u64>) -> Option<Bytes> {
         let root = self.inode.read().unwrap();
-        root.get_file(path)
+        root.get_file(path, revision)
     }
 
     pub fn list(&mut self, path: String) -> Vec<INodeInfo> {
@@ -170,7 +179,7 @@ impl State {
 
 enum Request {
     PutFile { path: String, content: Bytes },
-    GetFile { path: String },
+    GetFile { path: String, revision: Option<u64> },
     ListDir { path: String },
     Closed,
 }
@@ -257,7 +266,7 @@ where
                 let parts: Vec<_> = buf.split(' ').collect();
                 match parts[0] {
                     "PUT" => {
-                        let content_len = parts[2].parse::<usize>().unwrap();
+                        let content_len = parts[2].parse::<usize>()?;
                         let mut content = vec![0; content_len];
                         self.reader.read_exact(&mut content).await?;
                         Request::PutFile {
@@ -265,9 +274,17 @@ where
                             content: Bytes::from(content),
                         }
                     }
-                    "GET" => Request::GetFile {
-                        path: parts[1].to_string(),
-                    },
+                    "GET" => {
+                        let revision = if parts.len() == 3 {
+                            Some(parts[2].trim_start_matches('r').parse::<u64>()?)
+                        } else {
+                            None
+                        };
+                        Request::GetFile {
+                            path: parts[1].to_string(),
+                            revision,
+                        }
+                    }
                     "LIST" => Request::ListDir {
                         path: parts[1].to_string(),
                     },
@@ -354,9 +371,9 @@ async fn handle(mut socket: TcpStream, remote_addr: SocketAddr, mut state: State
                 info!("{} <- Server: OK with revision {}", remote_addr, revision);
                 ctx.outgoing(Response::FileRevision(revision)).await?;
             }
-            Request::GetFile { path } => {
+            Request::GetFile { path, revision } => {
                 info!("{} -> Server: GET {}", remote_addr, path);
-                let resp = match state.get(path) {
+                let resp = match state.get(path, revision) {
                     Some(content) => {
                         info!("{} <- Server: OK with content '{}'", remote_addr, unsafe {
                             String::from_utf8_unchecked(content.clone().to_vec())
@@ -507,6 +524,26 @@ mod tests {
             root.write_file("/x/foo.txt".to_string(), Bytes::from("Hello, world"))
                 .unwrap(),
             3
+        );
+
+        assert_eq!(
+            root.get_file("/x/foo.txt".to_string(), None),
+            Some(Bytes::from("Hello, world"))
+        );
+
+        assert_eq!(
+            root.get_file("/x/foo.txt".to_string(), Some(3)),
+            Some(Bytes::from("Hello, world"))
+        );
+
+        assert_eq!(
+            root.get_file("/x/foo.txt".to_string(), Some(2)),
+            Some(Bytes::from("Hello, orld"))
+        );
+
+        assert_eq!(
+            root.get_file("/x/foo.txt".to_string(), Some(1)),
+            Some(Bytes::from("Hello, world"))
         );
     }
 }
