@@ -11,6 +11,7 @@ mod prime_time;
 mod smock_test;
 mod speed_daemon;
 mod unusual_database_program;
+mod voracious_code_storage;
 
 use anyhow::{anyhow, Result};
 use clap::Parser;
@@ -51,6 +52,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 "line_reversal" => line_reversal::run(addr).await,
                 "insecure_sockets_layer" => insecure_sockets_layer::run(addr).await,
                 "job_centre" => job_centre::run(addr).await,
+                "voracious_code_storage" => voracious_code_storage::run(addr).await,
                 c => Err(anyhow!("Invalid command: {}", c)),
             } {
                 error!("Failed to run command {}: {:?}", app.cmd, e);
