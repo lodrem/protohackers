@@ -49,9 +49,9 @@ enum Outgoing {
     Heartbeat,
 }
 
-impl Into<Bytes> for Outgoing {
-    fn into(self) -> Bytes {
-        match self {
+impl From<Outgoing> for Bytes {
+    fn from(value: Outgoing) -> Self {
+        match value {
             Outgoing::Error { message } => {
                 let mut buf = BytesMut::new();
                 buf.put_u8(OUTGOING_ERROR);
@@ -316,7 +316,7 @@ impl HeartbeatLoop {
         }
 
         if !interval.is_zero() {
-            self.handle = Some(tokio::spawn(run_heartbeat_loop(interval, tx.clone())));
+            self.handle = Some(tokio::spawn(run_heartbeat_loop(interval, tx)));
         }
     }
 }
@@ -340,7 +340,7 @@ async fn handle(socket: TcpStream, remote_addr: SocketAddr, mut channel: Channel
                 if role.is_some() {
                     // Role had been already assigned.
                     tx.send(Outgoing::Error {
-                        message: format!("Should receive plate from camera"),
+                        message: "Should receive plate from camera".to_string(),
                     })?;
                     break;
                 }
@@ -377,7 +377,7 @@ async fn handle(socket: TcpStream, remote_addr: SocketAddr, mut channel: Channel
                 }
                 _ => {
                     tx.send(Outgoing::Error {
-                        message: format!("Should receive plate from camera"),
+                        message: "Should receive plate from camera".to_string(),
                     })?;
                     break;
                 }
@@ -405,7 +405,7 @@ async fn run_main_loop(mut rx: UnboundedReceiver<Event>) -> Result<()> {
     let mut plates: HashMap<(String, u16), Vec<(u16, u32)>> = HashMap::new();
     let mut tickets: HashMap<String, HashSet<u32>> = HashMap::new();
     let mut roads = HashMap::new();
-    let mut road_to_dispatchers = HashMap::new();
+    let mut road_to_dispatchers: HashMap<u16, HashSet<String>> = HashMap::new();
     let mut pending_tickets: VecDeque<Ticket> = VecDeque::new();
 
     while let Some(e) = rx.recv().await {
@@ -415,7 +415,7 @@ async fn run_main_loop(mut rx: UnboundedReceiver<Event>) -> Result<()> {
                 for road in roads.iter() {
                     road_to_dispatchers
                         .entry(*road)
-                        .or_insert(HashSet::new())
+                        .or_default()
                         .insert(id.clone());
                 }
                 pending_tickets.retain(|ticket| {
@@ -457,8 +457,8 @@ async fn run_main_loop(mut rx: UnboundedReceiver<Event>) -> Result<()> {
                 plate,
                 timestamp,
             } => {
-                let dates = tickets.entry(plate.clone()).or_insert(HashSet::new());
-                let miles = plates.entry((plate.clone(), road)).or_insert(Vec::new());
+                let dates = tickets.entry(plate.clone()).or_default();
+                let miles = plates.entry((plate.clone(), road)).or_default();
                 let limit = *roads.get(&road).unwrap();
 
                 let d1 = (timestamp as f64 / 86400.0).floor() as u32;
@@ -500,7 +500,7 @@ async fn run_main_loop(mut rx: UnboundedReceiver<Event>) -> Result<()> {
                             to_timestamp: t2,
                             speed: (speed * 100.0).floor() as u16,
                         };
-                        let ds = road_to_dispatchers.entry(road).or_insert(HashSet::new());
+                        let ds = road_to_dispatchers.entry(road).or_default();
                         if let Some(id) = ds.iter().next().cloned() {
                             info!(
                                 "server -> {}: dispatch ticket for {} on {}",

@@ -149,8 +149,8 @@ where
         let mut buf = v.into_bytes();
         buf.push(b'\n');
 
-        for i in 0..buf.len() {
-            buf[i] = self.ciphers.encode(buf[i]);
+        for b in &mut buf {
+            *b = self.ciphers.encode(*b);
         }
 
         self.writer.write_all(&buf).await?;

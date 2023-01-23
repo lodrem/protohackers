@@ -14,11 +14,13 @@ enum INodeInfo {
     Directory { filename: String },
 }
 
-impl Into<Bytes> for INodeInfo {
-    fn into(self) -> Bytes {
-        match self {
-            Self::File { filename, revision } => Bytes::from(format!("{} r{}", filename, revision)),
-            Self::Directory { filename } => Bytes::from(format!("{}/ DIR", filename)),
+impl From<INodeInfo> for Bytes {
+    fn from(value: INodeInfo) -> Self {
+        match value {
+            INodeInfo::File { filename, revision } => {
+                Bytes::from(format!("{} r{}", filename, revision))
+            }
+            INodeInfo::Directory { filename } => Bytes::from(format!("{}/ DIR", filename)),
         }
     }
 }
@@ -144,9 +146,8 @@ impl INode {
 
     #[inline]
     fn split_path(path: String) -> Vec<String> {
-        let parts: Vec<_> = path.trim_matches('/').split('/').collect();
-        parts
-            .into_iter()
+        path.trim_matches('/')
+            .split('/')
             .filter(|s| !s.is_empty())
             .map(|s| s.to_string())
             .collect()
@@ -207,16 +208,16 @@ enum Error {
     ListUsage,
 }
 
-impl Into<Bytes> for Error {
-    fn into(self) -> Bytes {
-        match self {
-            Self::FileNotFound => Bytes::from_static(b"no such file"),
-            Self::IllegalPath => Bytes::from_static(b"illegal file name"),
-            Self::IllegalFileContent => Bytes::from_static(b"text files only"),
-            Self::InvalidCommand(cmd) => Bytes::from(format!("illegal method: {}", cmd)),
-            Self::PutUsage => Bytes::from_static(b"usage: PUT file size"),
-            Self::GetUsage => Bytes::from_static(b"usage: GET file [revision]"),
-            Self::ListUsage => Bytes::from_static(b"usage: LIST dir"),
+impl From<Error> for Bytes {
+    fn from(value: Error) -> Self {
+        match value {
+            Error::FileNotFound => Bytes::from_static(b"no such file"),
+            Error::IllegalPath => Bytes::from_static(b"illegal file name"),
+            Error::IllegalFileContent => Bytes::from_static(b"text files only"),
+            Error::InvalidCommand(cmd) => Bytes::from(format!("illegal method: {}", cmd)),
+            Error::PutUsage => Bytes::from_static(b"usage: PUT file size"),
+            Error::GetUsage => Bytes::from_static(b"usage: GET file [revision]"),
+            Error::ListUsage => Bytes::from_static(b"usage: LIST dir"),
         }
     }
 }
@@ -230,22 +231,22 @@ enum Response {
     Err(Error),
 }
 
-impl Into<Bytes> for Response {
-    fn into(self) -> Bytes {
-        match self {
-            Self::Ready => Bytes::from_static(b"READY\n"),
-            Self::FileContent(content) => {
+impl From<Response> for Bytes {
+    fn from(value: Response) -> Self {
+        match value {
+            Response::Ready => Bytes::from_static(b"READY\n"),
+            Response::FileContent(content) => {
                 let mut buf = BytesMut::from(format!("OK {}\n", content.len()).as_bytes());
                 buf.put(content);
                 buf.put(&b"READY\n"[..]);
                 buf.freeze()
             }
-            Self::FileRevision(revision) => {
+            Response::FileRevision(revision) => {
                 let mut buf = BytesMut::from(format!("OK r{}\n", revision).as_bytes());
                 buf.put(&b"READY\n"[..]);
                 buf.freeze()
             }
-            Self::Files(files) => {
+            Response::Files(files) => {
                 let mut buf = BytesMut::from(format!("OK {}\n", files.len()).as_bytes());
                 for f in files {
                     buf.put::<Bytes>(f.into());
@@ -254,8 +255,8 @@ impl Into<Bytes> for Response {
                 buf.put(&b"READY\n"[..]);
                 buf.freeze()
             }
-            Self::Help => Bytes::from_static(b"OK usage: HELP|GET|PUT|LIST\nREADY\n"),
-            Self::Err(e) => {
+            Response::Help => Bytes::from_static(b"OK usage: HELP|GET|PUT|LIST\nREADY\n"),
+            Response::Err(e) => {
                 let mut buf = BytesMut::from(&b"ERR "[..]);
                 buf.put::<Bytes>(e.into());
                 buf.put_u8(b'\n');
@@ -418,8 +419,8 @@ pub fn is_valid_path(path: &str) -> bool {
 #[inline]
 pub fn is_valid_content(content: &[u8]) -> bool {
     content
-        .into_iter()
-        .all(|&c| (9 <= c && c <= 11) || (32 <= c && c <= 127))
+        .iter()
+        .all(|&c| (9..=11).contains(&c) || (32..=127).contains(&c))
 }
 
 async fn handle(mut socket: TcpStream, _remote_addr: SocketAddr, mut state: State) -> Result<()> {

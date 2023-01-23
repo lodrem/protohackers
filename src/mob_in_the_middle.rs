@@ -7,14 +7,14 @@ use tracing::{error, info};
 
 use crate::tcp;
 
-const UPSTREAM: &'static str = "chat.protohackers.com:16963";
+const UPSTREAM: &str = "chat.protohackers.com:16963";
 
 enum Request {
     Message(String),
     Closed,
 }
 
-const TARGET_ADDRESS: &'static str = "7YWHMfk9JZe0LM0g1ZauHuiSxhI";
+const TARGET_ADDRESS: &str = "7YWHMfk9JZe0LM0g1ZauHuiSxhI";
 
 fn rewrite_message(message: String) -> String {
     let parts: Vec<String> = message

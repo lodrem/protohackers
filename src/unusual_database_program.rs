@@ -25,7 +25,7 @@ pub async fn run(addr: SocketAddr) -> Result<()> {
                     kv.write().unwrap().insert(k.to_owned(), v.to_owned());
                 }
                 None if &req == "version" => {
-                    const VERSION: &'static str = "version=Lodrem's Key-Value Store 1.0";
+                    const VERSION: &str = "version=Lodrem's Key-Value Store 1.0";
                     if let Err(e) = socket.send_to(VERSION.as_bytes(), remote_addr).await {
                         warn!("Failed to send response to {}: {:?}", remote_addr, e);
                     }

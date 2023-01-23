@@ -8,7 +8,7 @@ use tracing::{error, info};
 
 use crate::tcp;
 
-const EXPECTED_METHOD: &'static str = "isPrime";
+const EXPECTED_METHOD: &str = "isPrime";
 
 #[derive(Deserialize)]
 struct Request {

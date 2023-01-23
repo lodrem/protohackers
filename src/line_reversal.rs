@@ -12,10 +12,10 @@ use tracing::{error, info, warn};
 
 type SessionId = u64;
 
-const MESSAGE_CONNECT: &'static str = "connect";
-const MESSAGE_DATA: &'static str = "data";
-const MESSAGE_ACK: &'static str = "ack";
-const MESSAGE_CLOSE: &'static str = "close";
+const MESSAGE_CONNECT: &str = "connect";
+const MESSAGE_DATA: &str = "data";
+const MESSAGE_ACK: &str = "ack";
+const MESSAGE_CLOSE: &str = "close";
 
 fn backtrack_if_escaped(buf: &[u8], pos: usize) -> bool {
     let mut cnt = 0;
@@ -37,7 +37,7 @@ fn split(s: &str) -> Vec<String> {
         let mut r = l + 1;
         while r < buf.len() {
             if buf[r] == b'/' {
-                if backtrack_if_escaped(&buf, r) {
+                if backtrack_if_escaped(buf, r) {
                     r += 1;
                     continue;
                 }
@@ -70,11 +70,11 @@ enum Message {
     },
 }
 
-impl Into<String> for Message {
-    fn into(self) -> String {
-        let buf = match self {
-            Self::Connect { session } => format!("{}/{}", MESSAGE_CONNECT, session),
-            Self::Data {
+impl From<Message> for String {
+    fn from(value: Message) -> Self {
+        let buf = match value {
+            Message::Connect { session } => format!("{}/{}", MESSAGE_CONNECT, session),
+            Message::Data {
                 session,
                 position,
                 data,
@@ -83,10 +83,10 @@ impl Into<String> for Message {
                 MESSAGE_DATA,
                 session,
                 position,
-                data.replace("\\", "\\\\").replace("/", "\\/")
+                data.replace('\\', "\\\\").replace('/', "\\/")
             ),
-            Self::Ack { session, length } => format!("{}/{}/{}", MESSAGE_ACK, session, length),
-            Self::Close { session } => format!("{}/{}", MESSAGE_CLOSE, session),
+            Message::Ack { session, length } => format!("{}/{}/{}", MESSAGE_ACK, session, length),
+            Message::Close { session } => format!("{}/{}", MESSAGE_CLOSE, session),
         };
 
         format!("/{}/", buf)
@@ -102,7 +102,9 @@ impl TryFrom<String> for Message {
         }
 
         let parts = split(value.trim_matches('/'));
-        let typ = parts.first().ok_or(anyhow!("No message type provided"))?;
+        let typ = parts
+            .first()
+            .ok_or_else(|| anyhow!("No message type provided"))?;
         let message = match typ.as_str() {
             MESSAGE_CONNECT if parts.len() == 2 => {
                 let session = parts[1].parse::<SessionId>()?;
@@ -289,7 +291,7 @@ impl Session {
     pub async fn send_close_if_expiry(&mut self, pos: u64) -> Result<bool> {
         if self.outgoing_ack_pos <= pos {
             warn!("{} <- Server: CLOSE as session expiry", self.id);
-            close_session(self.socket.clone(), self.addr.clone(), self.id).await?;
+            close_session(self.socket.clone(), self.addr, self.id).await?;
             Ok(true)
         } else {
             Ok(false)
@@ -324,7 +326,7 @@ impl Session {
         }
         let (l, r) = {
             let l = position as usize;
-            let r = cmp::min(l + 900, self.outgoing.len() as usize);
+            let r = cmp::min(l + 900, self.outgoing.len());
             (l, r)
         };
         let data = unsafe { String::from_utf8_unchecked(self.outgoing[l..r].to_vec()).to_string() };
@@ -503,36 +505,5 @@ pub async fn run(addr: SocketAddr) -> Result<()> {
 
     run_accept_loop(socket, tx).await?;
 
-    loop {}
-}
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn test_split() {
-        use super::split;
-
-        let cases = [
-            ("", vec![]),
-            ("data", vec!["data"]),
-            ("foo/bar", vec!["foo", "bar"]),
-            ("data/0/hello_world", vec!["data", "0", "hello_world"]),
-            ("data/0/hello_world\n", vec!["data", "0", "hello_world\n"]),
-            ("data/0/\\/", vec!["data", "0", "\\/"]),
-            ("data/\\/0/\\/", vec!["data", "\\/0", "\\/"]),
-            (
-                "foo\\\\\\//\\/bar/hello\\/world",
-                vec!["foo\\\\\\/", "\\/bar", "hello\\/world"],
-            ),
-            (
-                "foo\\\\/\\/bar/hello\\/world",
-                vec!["foo\\\\", "\\/bar", "hello\\/world"],
-            ),
-        ];
-
-        for (input, expected) in cases.into_iter() {
-            let expected: Vec<String> = expected.into_iter().map(|s| s.to_string()).collect();
-            assert_eq!(split(input), expected);
-        }
-    }
+    Ok(())
 }

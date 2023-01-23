@@ -131,7 +131,7 @@ async fn handle(socket: TcpStream, remote_addr: SocketAddr, mut state: Room) -> 
 
     // prompt name
     let name = {
-        const GREET_MESSAGE: &'static str = "Welcome to budgetchat! What shall I call you?\n";
+        const GREET_MESSAGE: &str = "Welcome to budgetchat! What shall I call you?\n";
         wh.write_all(GREET_MESSAGE.as_bytes()).await?;
         let mut name = String::new();
         reader.read_line(&mut name).await?;
