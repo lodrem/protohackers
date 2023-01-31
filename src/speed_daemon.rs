@@ -102,9 +102,9 @@ where
         Self { writer: w }
     }
 
-    pub async fn error(&mut self, error: anyhow::Error) -> Result<()> {
+    pub async fn error(&mut self, e: anyhow::Error) -> Result<()> {
         self.send(Outgoing::Error {
-            message: format!("Unexpected error: {:?}", error),
+            message: format!("Unexpected error: {e:?}"),
         })
         .await
     }
@@ -384,7 +384,7 @@ async fn handle(socket: TcpStream, remote_addr: SocketAddr, mut channel: Channel
             },
             Err(e) => {
                 tx.send(Outgoing::Error {
-                    message: format!("Unexpected error: {:?}", e),
+                    message: format!("Unexpected error: {e:?}"),
                 })?;
                 break;
             }

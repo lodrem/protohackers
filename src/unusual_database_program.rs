@@ -34,7 +34,7 @@ pub async fn run(addr: SocketAddr) -> Result<()> {
                     info!("Querying key-value pair: {}", req);
                     let resp = {
                         let v = kv.read().unwrap().get(&req).cloned().unwrap_or_default();
-                        format!("{}={}", req, v)
+                        format!("{req}={v}")
                     };
 
                     if let Err(e) = socket.send_to(resp.as_bytes(), remote_addr).await {

@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 
-FROM rust:1.66-bullseye AS builder
+FROM rust:1.67-bullseye AS builder
 
 WORKDIR /workspace
 COPY . .

@@ -177,7 +177,7 @@ async fn handle(mut socket: TcpStream, _remote_addr: SocketAddr) -> Result<()> {
             .max_by_key(|(n, _)| *n)
             .expect("at least 1 toy");
 
-        ctx.send_line(format!("{}x {}", n, toy)).await?;
+        ctx.send_line(format!("{n}x {toy}")).await?;
     }
 }
 

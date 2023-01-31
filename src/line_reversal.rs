@@ -73,7 +73,7 @@ enum Message {
 impl From<Message> for String {
     fn from(value: Message) -> Self {
         let buf = match value {
-            Message::Connect { session } => format!("{}/{}", MESSAGE_CONNECT, session),
+            Message::Connect { session } => format!("{MESSAGE_CONNECT}/{session}"),
             Message::Data {
                 session,
                 position,
@@ -85,11 +85,11 @@ impl From<Message> for String {
                 position,
                 data.replace('\\', "\\\\").replace('/', "\\/")
             ),
-            Message::Ack { session, length } => format!("{}/{}/{}", MESSAGE_ACK, session, length),
-            Message::Close { session } => format!("{}/{}", MESSAGE_CLOSE, session),
+            Message::Ack { session, length } => format!("{MESSAGE_ACK}/{session}/{length}"),
+            Message::Close { session } => format!("{MESSAGE_CLOSE}/{session}"),
         };
 
-        format!("/{}/", buf)
+        format!("/{buf}/")
     }
 }
 

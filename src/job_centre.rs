@@ -330,14 +330,14 @@ async fn handle(mut socket: TcpStream, remote_addr: SocketAddr, mut state: State
                 error!("Failed to get incoming request: {:?}", e);
                 ctx.respond(json!({
                     "status": "error",
-                    "message": format!("Unknown error occurred: {:?}", e),
+                    "message": format!("Unknown error occurred: {e:?}", ),
                 }))
                 .await?;
             }
         }
     }
 
-    info!("Dropping socket {}", remote_addr);
+    info!("Dropping socket {remote_addr}");
 
     Ok(())
 }

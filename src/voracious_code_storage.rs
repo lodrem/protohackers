@@ -18,9 +18,9 @@ impl From<INodeInfo> for Bytes {
     fn from(value: INodeInfo) -> Self {
         match value {
             INodeInfo::File { filename, revision } => {
-                Bytes::from(format!("{} r{}", filename, revision))
+                Bytes::from(format!("{filename} r{revision}"))
             }
-            INodeInfo::Directory { filename } => Bytes::from(format!("{}/ DIR", filename)),
+            INodeInfo::Directory { filename } => Bytes::from(format!("{filename}/ DIR")),
         }
     }
 }
@@ -29,9 +29,9 @@ impl Display for INodeInfo {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::File { filename, revision } => {
-                write!(f, "File[{}, revision={}]", filename, revision)
+                write!(f, "File[{filename}, revision={revision}]")
             }
-            Self::Directory { filename } => write!(f, "Dir[{}]", filename),
+            Self::Directory { filename } => write!(f, "Dir[{filename}]"),
         }
     }
 }
@@ -214,7 +214,7 @@ impl From<Error> for Bytes {
             Error::FileNotFound => Bytes::from_static(b"no such file"),
             Error::IllegalPath => Bytes::from_static(b"illegal file name"),
             Error::IllegalFileContent => Bytes::from_static(b"text files only"),
-            Error::InvalidCommand(cmd) => Bytes::from(format!("illegal method: {}", cmd)),
+            Error::InvalidCommand(cmd) => Bytes::from(format!("illegal method: {cmd}")),
             Error::PutUsage => Bytes::from_static(b"usage: PUT file size"),
             Error::GetUsage => Bytes::from_static(b"usage: GET file [revision]"),
             Error::ListUsage => Bytes::from_static(b"usage: LIST dir"),
@@ -242,7 +242,7 @@ impl From<Response> for Bytes {
                 buf.freeze()
             }
             Response::FileRevision(revision) => {
-                let mut buf = BytesMut::from(format!("OK r{}\n", revision).as_bytes());
+                let mut buf = BytesMut::from(format!("OK r{revision}\n").as_bytes());
                 buf.put(&b"READY\n"[..]);
                 buf.freeze()
             }
@@ -272,13 +272,13 @@ impl Display for Response {
         match self {
             Self::Ready => write!(f, "Response::Ready"),
             Self::FileContent(content) => write!(f, "FileContent[len={}]", content.len()),
-            Self::FileRevision(revision) => write!(f, "FileRevision[{}]", revision),
+            Self::FileRevision(revision) => write!(f, "FileRevision[{revision}]"),
             Self::Files(files) => write!(f, "Files[len={}]: {}", files.len(), {
-                let files: Vec<_> = files.iter().map(|f| format!("{}", f)).collect();
+                let files: Vec<_> = files.iter().map(|f| format!("{f}")).collect();
                 files.join(",")
             }),
             Self::Help => write!(f, "HELP"),
-            Self::Err(e) => write!(f, "Error[{:?}]", e),
+            Self::Err(e) => write!(f, "Error[{e:?}]"),
         }
     }
 }

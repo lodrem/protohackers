@@ -85,15 +85,15 @@ where
     pub async fn process_event(&mut self, e: Event) -> Result<()> {
         match e {
             Event::UserJoined(name) if name != self.name => {
-                let msg = format!("* {} has entered the room\n", name);
+                let msg = format!("* {name} has entered the room\n");
                 self.send_message(&msg).await?;
             }
             Event::UserLeft(name) if name != self.name => {
-                let msg = format!("* {} has left the room\n", name);
+                let msg = format!("* {name} has left the room\n");
                 self.send_message(&msg).await?;
             }
             Event::Incoming(name, message) if name != self.name => {
-                let msg = format!("[{}] {}", name, message);
+                let msg = format!("[{name}] {message}");
                 self.send_message(&msg).await?;
             }
             _ => {}
