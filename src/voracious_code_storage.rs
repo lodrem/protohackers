@@ -274,7 +274,7 @@ impl Display for Response {
             Self::FileContent(content) => write!(f, "FileContent[len={}]", content.len()),
             Self::FileRevision(revision) => write!(f, "FileRevision[{revision}]"),
             Self::Files(files) => write!(f, "Files[len={}]: {}", files.len(), {
-                let files: Vec<_> = files.iter().map(|f| format!("{f}")).collect();
+                let files: Vec<_> = files.iter().map(|f| f.to_string()).collect();
                 files.join(",")
             }),
             Self::Help => write!(f, "HELP"),
